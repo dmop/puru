@@ -25,9 +25,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          registry-url: https://registry.npmjs.org
       - run: npm ci
       - run: npm run build
+
+      - name: Configure npm for trusted publishing
+        run: |
+          echo "//registry.npmjs.org/:_authToken=" > ~/.npmrc
+          npm config set registry https://registry.npmjs.org
 
       - name: Create release PR or publish
         uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1
