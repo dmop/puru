@@ -1,0 +1,45 @@
+# puru (プール)
+
+> A thread pool with Go-style concurrency primitives for JavaScript
+
+puru manages a pool of worker threads and provides a simple API to run functions off the main thread. No separate worker files, no manual message passing.
+
+Works on Node.js and Bun. Deno support coming soon.
+
+## Install
+
+npm install @dmop/puru
+bun add @dmop/puru
+
+## Core API
+
+- spawn(fn, opts?) — run a function in a worker thread, returns { result: Promise<T>, cancel() }
+- chan(capacity?) — Go-style channels for cross-thread communication
+- WaitGroup — spawn multiple tasks, wait for all (like Promise.all but off main thread)
+- ErrGroup — like WaitGroup but cancels all on first error
+- select(cases, opts?) — wait for first of multiple promises (like Go's select)
+- Mutex — async mutual exclusion
+- Once<T> — run a function exactly once, all callers get same result
+- after(ms) / ticker(ms) — timers for use with select and async iteration
+- register(name, fn) / run(name, ...args) — named task registry
+- configure(opts?) — global config (maxThreads, concurrency, idleTimeout, adapter)
+- stats() / resize(n) — pool introspection and runtime scaling
+
+## Two Modes
+
+- Exclusive (default): 1 task per thread, for CPU-bound work — spawn(() => heavyWork())
+- Concurrent: many tasks share a thread's event loop, for I/O-bound work — spawn(() => fetch(url), { concurrent: true })
+
+## Key Constraints
+
+- Functions passed to spawn() must be self-contained (no closure captures)
+- Channel values must be structured-cloneable (no functions, symbols, WeakRefs)
+- null cannot be sent through channels (it's the "closed" sentinel)
+- register()/run() args must be JSON-serializable
+- Spawn overhead is ~0.1-0.5ms, use for tasks > 5ms
+
+## Links
+
+- Docs: https://github.com/dmop/puru#readme
+- Full docs for LLMs: https://raw.githubusercontent.com/dmop/puru/main/llms-full.txt
+- AI assistant guide (AGENTS.md): https://raw.githubusercontent.com/dmop/puru/main/AGENTS.md
