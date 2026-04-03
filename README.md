@@ -9,13 +9,13 @@ Works on **Node.js** and **Bun**. No separate worker files, no manual message pa
 ## Install
 
 ```bash
-npm install puru
+npm install @dmop/puru
 ```
 
 ## Quick Start
 
 ```typescript
-import { spawn, chan, WaitGroup, select, after } from 'puru'
+import { spawn, chan, WaitGroup, select, after } from '@dmop/puru'
 
 // CPU work — runs in a dedicated worker thread
 const { result } = spawn(() => fibonacci(40))
@@ -112,7 +112,7 @@ const results = await Promise.all(items.map(item => pool.run(item)))
 **puru** — one file, 4 lines:
 
 ```typescript
-import { WaitGroup } from 'puru'
+import { WaitGroup } from '@dmop/puru'
 const wg = new WaitGroup()
 for (const item of items) wg.spawn(() => heavyWork(item))
 const results = await wg.wait()
@@ -401,7 +401,7 @@ Both Promise.all and puru concurrent are fast — but puru runs everything **off
 ## Testing
 
 ```typescript
-import { configure } from 'puru'
+import { configure } from '@dmop/puru'
 configure({ adapter: 'inline' }) // runs tasks in main thread, no real workers
 ```
 
