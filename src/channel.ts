@@ -1,12 +1,19 @@
-export interface Channel<T> {
+// Internal sentinel used to signal channel closure.
+// Using a symbol instead of null means null is a valid value to send through a channel
+// at the implementation level, and avoids silent failures if someone attempts to send null.
+// The public recv() API still returns null for a closed channel — the symbol is not leaked.
+const CLOSED = Symbol('puru.channel.closed')
+
+export interface Channel<T extends NonNullable<unknown>> {
   send(value: T): Promise<void>
+  /** Resolves with the next value, or null if the channel is closed. */
   recv(): Promise<T | null>
   close(): void
   [Symbol.asyncIterator](): AsyncIterator<T>
 }
 
 interface PendingRecv<T> {
-  resolve: (value: T | null) => void
+  resolve: (value: T | typeof CLOSED) => void
 }
 
 interface PendingSend<T> {
@@ -16,9 +23,9 @@ interface PendingSend<T> {
 }
 
 let channelIdCounter = 0
-const channelRegistry = new Map<string, ChannelImpl<unknown>>()
+const channelRegistry = new Map<string, ChannelImpl<NonNullable<unknown>>>()
 
-class ChannelImpl<T> implements Channel<T> {
+class ChannelImpl<T extends NonNullable<unknown>> implements Channel<T> {
   /** @internal */
   readonly _id: string
   private buffer: T[] = []
@@ -30,7 +37,7 @@ class ChannelImpl<T> implements Channel<T> {
   constructor(capacity: number) {
     this._id = `__ch_${++channelIdCounter}`
     this.capacity = capacity
-    channelRegistry.set(this._id, this as ChannelImpl<unknown>)
+    channelRegistry.set(this._id, this as ChannelImpl<NonNullable<unknown>>)
   }
 
   send(value: T): Promise<void> {
@@ -83,7 +90,9 @@ class ChannelImpl<T> implements Channel<T> {
 
     // Block until a sender provides a value or channel closes
     return new Promise<T | null>((resolve) => {
-      this.recvQueue.push({ resolve })
+      this.recvQueue.push({
+        resolve: (v) => resolve(v === CLOSED ? null : (v as T)),
+      })
     })
   }
 
@@ -91,9 +100,9 @@ class ChannelImpl<T> implements Channel<T> {
     if (this.closed) return
     this.closed = true
 
-    // Resolve all pending receivers with null
+    // Resolve all pending receivers with the CLOSED sentinel (converted to null at the public boundary)
     for (const receiver of this.recvQueue) {
-      receiver.resolve(null)
+      receiver.resolve(CLOSED)
     }
     this.recvQueue = []
 
@@ -113,7 +122,7 @@ class ChannelImpl<T> implements Channel<T> {
   }
 }
 
-export function chan<T>(capacity: number = 0): Channel<T> {
+export function chan<T extends NonNullable<unknown>>(capacity: number = 0): Channel<T> {
   if (capacity < 0 || !Number.isInteger(capacity)) {
     throw new RangeError('Channel capacity must be a non-negative integer')
   }
@@ -121,7 +130,7 @@ export function chan<T>(capacity: number = 0): Channel<T> {
 }
 
 /** @internal */
-export function getChannelById(id: string): Channel<unknown> | undefined {
+export function getChannelById(id: string): Channel<NonNullable<unknown>> | undefined {
   return channelRegistry.get(id)
 }
 

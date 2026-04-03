@@ -224,6 +224,14 @@ export class WorkerPool {
       const taskId = response.taskId
       const err = new Error(response.message)
       if (response.stack) err.stack = response.stack
+      // ReferenceError inside a worker almost always means the function captured
+      // a variable from the enclosing scope. Surface a clear message rather than
+      // a cryptic worker-internal stack trace.
+      if (response.message.match(/^ReferenceError:/) || response.message.match(/ is not defined$/)) {
+        err.message +=
+          '\n  Hint: functions passed to spawn() cannot access variables from the enclosing scope. ' +
+          'Inline all required values directly in the function body, or pass them via the channels option.'
+      }
       this.rejectTask(taskId, err)
 
       if (this.exclusiveWorkers.has(taskId)) {
@@ -677,9 +685,27 @@ export function resize(maxThreads: number): void {
   getPool().resize(maxThreads)
 }
 
-export async function resetPool(): Promise<void> {
+/**
+ * Gracefully shut down the thread pool.
+ *
+ * Rejects all queued tasks, waits for all workers to terminate, then clears
+ * the pool. Safe to call at process exit or at the end of a test suite.
+ *
+ * ```ts
+ * process.on('SIGTERM', async () => {
+ *   await shutdown()
+ *   process.exit(0)
+ * })
+ * ```
+ */
+export async function shutdown(): Promise<void> {
   if (poolInstance) {
     await poolInstance.drain()
     poolInstance = null
   }
+}
+
+/** @internal For testing only */
+export async function resetPool(): Promise<void> {
+  await shutdown()
 }

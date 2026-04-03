@@ -137,6 +137,73 @@ const results = await wg.wait()
 | Pool management | Manual | Automatic | Automatic | **Automatic** |
 | Bun support | No | No | No | **Yes** |
 
+### puru vs Node.js Cluster
+
+These solve different problems and are meant to be used together in production.
+
+**Node Cluster** copies your entire app into N processes. The OS load-balances incoming connections across them. The goal is request throughput — use all cores to handle more concurrent HTTP requests.
+
+**puru** manages a thread pool inside a single process. Heavy tasks are offloaded off the main event loop to worker threads. The goal is CPU task isolation — use all cores without blocking the event loop.
+
+```text
+Node Cluster (4 processes):
+
+         OS / Load Balancer
+    ┌─────────┬─────────┬─────────┐
+    ▼         ▼         ▼         ▼
+┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
+│Process │ │Process │ │Process │ │Process │
+│full app│ │full app│ │full app│ │full app│
+│own DB  │ │own DB  │ │own DB  │ │own DB  │
+│~100MB  │ │~100MB  │ │~100MB  │ │~100MB  │
+└────────┘ └────────┘ └────────┘ └────────┘
+
+puru (1 process, thread pool):
+
+┌──────────────────────────────────────┐
+│          Your App (1 process)        │
+│                                      │
+│  Main thread — handles HTTP, DB, I/O │
+│                                      │
+│  ┌──────────┐  ┌──────────┐         │
+│  │ Thread 1 │  │ Thread 2 │  ...    │
+│  │ CPU task │  │ CPU task │         │
+│  └──────────┘  └──────────┘         │
+│  shared memory, one DB pool          │
+└──────────────────────────────────────┘
+```
+
+What happens without puru, even with Cluster:
+
+```text
+Request 1 → Process 1 → resize image (2s) → Process 1 event loop FROZEN
+Request 2 → Process 2 → handles fine ✓
+Request 3 → Process 3 → handles fine ✓
+(other processes still work, but each process still blocks on heavy tasks)
+
+With puru inside each process:
+Request 1 → spawn(resizeImage) → worker thread, main thread free ✓
+Request 2 → main thread handles instantly ✓
+Request 3 → main thread handles instantly ✓
+```
+
+In production, use both:
+
+```text
+PM2 / Cluster (4 processes)    ← maximise request throughput
+  └── each process runs puru   ← keep each event loop unblocked
+```
+
+| | Cluster | puru |
+| --- | --- | --- |
+| Unit | Process | Thread |
+| Memory | ~100MB per copy | Shared, much lower |
+| Shared state | Needs Redis/IPC | Same process |
+| Solves | Request throughput | CPU task offloading |
+| Event loop | Still blocks per process | Never blocks |
+| DB connections | One pool per process | One pool total |
+| Bun support | No cluster module | Yes |
+
 ## API
 
 ### `spawn(fn, opts?)`

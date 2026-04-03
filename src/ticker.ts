@@ -1,6 +1,6 @@
 export class Ticker {
   private interval: ReturnType<typeof setInterval> | null = null
-  private resolve: (() => void) | null = null
+  private resolve: ((value: boolean) => void) | null = null
   private stopped = false
   private ms: number
 
@@ -10,7 +10,7 @@ export class Ticker {
       if (this.resolve) {
         const r = this.resolve
         this.resolve = null
-        r()
+        r(true)
       }
     }, ms)
     if (this.interval.unref) this.interval.unref()
@@ -19,7 +19,14 @@ export class Ticker {
   async tick(): Promise<boolean> {
     if (this.stopped) return false
     return new Promise<boolean>((resolve) => {
-      this.resolve = () => resolve(true)
+      this.resolve = resolve
+      // Re-check after assignment: stop() may have been called between
+      // the guard above and here, in which case this.resolve was never
+      // seen by stop() and the promise would hang.
+      if (this.stopped) {
+        this.resolve = null
+        resolve(false)
+      }
     })
   }
 
@@ -32,7 +39,7 @@ export class Ticker {
     if (this.resolve) {
       const r = this.resolve
       this.resolve = null
-      r()
+      r(false) // resolve pending tick with false — the ticker has stopped
     }
   }
 

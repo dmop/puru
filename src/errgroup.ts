@@ -1,5 +1,6 @@
 import { spawn } from './spawn.js'
 import type { SpawnResult } from './types.js'
+import type { Channel } from './channel.js'
 
 export class ErrGroup {
   private tasks: SpawnResult<unknown>[] = []
@@ -11,7 +12,10 @@ export class ErrGroup {
     return this.controller.signal
   }
 
-  spawn(fn: () => unknown, opts?: { concurrent?: boolean }): void {
+  spawn(
+    fn: (() => unknown) | ((channels: Record<string, Channel<unknown>>) => unknown),
+    opts?: { concurrent?: boolean; channels?: Record<string, Channel<unknown>> },
+  ): void {
     if (this.controller.signal.aborted) {
       throw new Error('ErrGroup has been cancelled')
     }
