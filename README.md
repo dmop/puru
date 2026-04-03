@@ -2,7 +2,7 @@
 
 A thread pool with Go-style concurrency primitives for JavaScript — spawn tasks off the main thread with channels, WaitGroup, select, and more. No worker files, no boilerplate.
 
-Works on **Node.js** and **Bun**.
+Works on **Node.js** and **Bun**. Deno support coming soon.
 
 *puru (プール) means "pool" in Japanese.*
 
@@ -10,6 +10,8 @@ Works on **Node.js** and **Bun**.
 
 ```bash
 npm install @dmop/puru
+# or
+bun add @dmop/puru
 ```
 
 ## Quick Start
@@ -356,7 +358,7 @@ npm run bench          # all benchmarks (Node.js)
 npm run bench:bun      # all benchmarks (Bun)
 ```
 
-### CPU-Bound Parallelism (Node.js)
+### CPU-Bound Parallelism
 
 | Benchmark | Without puru | With puru | Speedup |
 | --- | --: | --: | --: |
@@ -365,7 +367,19 @@ npm run bench:bun      # all benchmarks (Bun)
 | Matrix multiply (200x200 x8) | 140 ms | 39 ms | **3.6x** |
 | Data processing (100K items x8) | 221 ms | 67 ms | **3.3x** |
 
-### Channels Fan-Out Pipeline (Node.js)
+<details>
+<summary>Bun results</summary>
+
+| Benchmark | Without puru | With puru | Speedup |
+| --- | --: | --: | --: |
+| Fibonacci (fib(38) x8) | 2,208 ms | 380 ms | **5.8x** |
+| Prime counting (2M range) | 201 ms | 50 ms | **4.0x** |
+| Matrix multiply (200x200 x8) | 197 ms | 57 ms | **3.5x** |
+| Data processing (100K items x8) | 214 ms | 109 ms | **2.0x** |
+
+</details>
+
+### Channels Fan-Out Pipeline
 
 200 items with CPU-heavy transform, 4 parallel transform workers:
 
@@ -375,7 +389,18 @@ npm run bench:bun      # all benchmarks (Bun)
 | Main-thread channels only | 174 ms | 1.0x |
 | **puru fan-out (4 workers)** | **51 ms** | **3.4x faster** |
 
-### Concurrent Async (Node.js)
+<details>
+<summary>Bun results</summary>
+
+| Approach | Time | vs Sequential |
+| --- | --: | --: |
+| Sequential (no channels) | 59 ms | baseline |
+| Main-thread channels only | 60 ms | 1.0x |
+| **puru fan-out (4 workers)** | **22 ms** | **2.7x faster** |
+
+</details>
+
+### Concurrent Async
 
 100 async tasks with simulated I/O + CPU:
 
@@ -384,6 +409,17 @@ npm run bench:bun      # all benchmarks (Bun)
 | Sequential | 1,140 ms | baseline |
 | Promise.all (main thread) | 20 ms | 58x faster |
 | **puru concurrent** | **16 ms** | **73x faster** |
+
+<details>
+<summary>Bun results</summary>
+
+| Approach | Time | vs Sequential |
+| --- | --: | --: |
+| Sequential | 1,110 ms | baseline |
+| Promise.all (main thread) | 16 ms | 68x faster |
+| **puru concurrent** | **13 ms** | **87x faster** |
+
+</details>
 
 Both Promise.all and puru concurrent are fast — but puru runs everything **off the main thread**, keeping your server responsive under load.
 
@@ -395,6 +431,7 @@ Both Promise.all and puru concurrent are fast — but puru runs everything **off
 | --- | --- | --- |
 | Node.js >= 18 | Full | `worker_threads` |
 | Bun | Full | Web Workers (file-based) |
+| Deno | Planned | — |
 | Cloudflare Workers | Error | No thread support |
 | Vercel Edge | Error | No thread support |
 
