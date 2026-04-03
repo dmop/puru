@@ -457,9 +457,15 @@ export class WorkerPool {
       this.concurrentQueues[priority] = []
     }
 
-    // Clear in-flight concurrent tasks — their workers are about to be terminated.
+    // Clear in-flight exclusive tasks — their workers are about to be terminated.
     // We don't reject them here because the caller may not be listening, which
     // would cause unhandled rejection errors. The promises will simply never settle.
+    for (const [taskId] of this.exclusiveWorkers) {
+      this.taskMap.delete(taskId)
+    }
+    this.exclusiveWorkers.clear()
+
+    // Same for in-flight concurrent tasks.
     for (const [, taskSet] of this.sharedWorkers) {
       for (const taskId of taskSet) {
         this.taskMap.delete(taskId)

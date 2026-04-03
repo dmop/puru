@@ -259,7 +259,7 @@ detectCapability()  // 'full-threads' | 'single-thread'
 
 ## Runtimes
 
-- Node.js >= 18: Full support via worker_threads
+- Node.js >= 20: Full support via worker_threads
 - Bun: Full support via Web Workers (file-based)
 - Deno: Planned
 - Cloudflare Workers: Not supported (no thread support)

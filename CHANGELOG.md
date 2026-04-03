@@ -19,6 +19,6 @@
 - Task priority scheduling (high, normal, low)
 - Task cancellation with `cancel()`
 - Runtime detection (`detectRuntime()`, `detectCapability()`)
-- Full Node.js >= 18 support via `worker_threads`
+- Full Node.js >= 20 support via `worker_threads`
 - Full Bun support via Web Workers
 - Inline adapter for testing (`configure({ adapter: 'inline' })`)

@@ -568,7 +568,7 @@ npm run bench:once         # Once + Ticker
 
 | Runtime | Status |
 | --- | --- |
-| Node.js >= 18 | Full support (`worker_threads`) |
+| Node.js >= 20 | Full support (`worker_threads`) |
 | Bun | Full support (Web Workers) |
 | Deno | Planned |
 | Cloudflare Workers | Not supported (no threads) |

@@ -1,0 +1,6 @@
+{
+  "prettier.enable": false,
+  "eslint.enable": false,
+  "editor.defaultFormatter": "nicolo-ribaudo.biome-oxc",
+  "oxc.enable": true
+}

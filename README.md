@@ -11,7 +11,7 @@
 - Coordination: use channels, `WaitGroup`, `ErrGroup`, `select`, `Mutex`, `Once`, and `ticker`
 - Ergonomics: write worker logic inline or define reusable typed tasks
 
-Works on **Node.js >= 18** and **Bun**.
+Works on **Node.js >= 20** and **Bun**.
 
 ## Why This Exists
 
@@ -216,7 +216,7 @@ Full benchmark tables live in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 | Runtime | Support | Notes |
 | --- | --- | --- |
-| Node.js >= 18 | Full | Uses `worker_threads` |
+| Node.js >= 20 | Full | Uses `worker_threads` |
 | Bun | Full | Uses Web Workers |
 | Deno | Planned | Not yet implemented |
 

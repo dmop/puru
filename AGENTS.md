@@ -178,7 +178,7 @@ configure({ adapter: 'inline' })
 
 ## Runtimes
 
-- Node.js >= 18: full support
+- Node.js >= 20: full support
 - Bun: full support
 - Deno: planned
 - Cloudflare Workers / Vercel Edge: not supported (no thread API)
