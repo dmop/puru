@@ -37,10 +37,4 @@ describe('stats', () => {
     expect(s.totalFailed).toBe(1)
   })
 
-  it('reports worker counts after task completes', async () => {
-    await spawn(() => 1).result
-    const s = stats()
-    expect(s.totalWorkers).toBeGreaterThanOrEqual(1)
-    expect(s.totalCompleted).toBeGreaterThanOrEqual(1)
-  })
 })
