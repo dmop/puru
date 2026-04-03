@@ -1,0 +1,73 @@
+{
+  "name": "puru",
+  "version": "0.1.0",
+  "description": "puru (プール) — Goroutine-style concurrency for JavaScript",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "bench": "npm run build && npx tsx benchmarks/run-all.ts",
+    "bench:node": "npm run build && npx tsx benchmarks/run-all.ts",
+    "bench:bun": "npm run build && bun benchmarks/run-all.ts",
+    "bench:fib": "npx tsx benchmarks/01-fibonacci.ts",
+    "bench:primes": "npx tsx benchmarks/02-primes.ts",
+    "bench:matrix": "npx tsx benchmarks/03-matrix.ts",
+    "bench:data": "npx tsx benchmarks/04-data-processing.ts",
+    "bench:overhead": "npx tsx benchmarks/05-overhead.ts",
+    "bench:channels": "npx tsx benchmarks/06-channels-pipeline.ts",
+    "bench:concurrent": "npx tsx benchmarks/07-concurrent-async.ts",
+    "bench:mutex": "npx tsx benchmarks/08-mutex.ts",
+    "bench:errgroup": "npx tsx benchmarks/09-errgroup.ts",
+    "bench:select": "npx tsx benchmarks/10-select-default.ts",
+    "bench:once": "npx tsx benchmarks/11-once-ticker.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "bun-types": "^1.3.11",
+    "tsup": "^8.5.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0"
+  },
+  "keywords": [
+    "concurrency",
+    "goroutine",
+    "worker",
+    "channel",
+    "threads",
+    "parallel"
+  ],
+  "license": "MIT",
+  "author": "Danilo Pedrosa",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmop/puru.git"
+  },
+  "homepage": "https://github.com/dmop/puru#readme",
+  "bugs": {
+    "url": "https://github.com/dmop/puru/issues"
+  }
+}
