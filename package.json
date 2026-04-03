@@ -1,5 +1,5 @@
 {
-  "name": "puru",
+  "name": "@dmop/puru",
   "version": "0.1.0",
   "description": "puru (プール) — Goroutine-style concurrency for JavaScript",
   "type": "module",
