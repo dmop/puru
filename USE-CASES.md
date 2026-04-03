@@ -2,7 +2,7 @@
 
 JavaScript runs on a single thread. `Promise.all` interleaves async tasks on that one thread — it never runs CPU work in parallel. When your server spends 200ms crunching data inside a request handler, every other request waits. This is the problem puru solves.
 
-puru gives you real OS threads with the ergonomics of Go's goroutines: inline functions, no worker files, an M:N scheduler, channels, and structured concurrency. Below are the production scenarios where this matters.
+puru gives you a managed thread pool with Go-style concurrency primitives: inline functions, no worker files, channels, and structured concurrency. Below are the production scenarios where this matters.
 
 ---
 

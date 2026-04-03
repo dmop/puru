@@ -1,7 +1,7 @@
 {
   "name": "@dmop/puru",
-  "version": "0.1.1",
-  "description": "puru (プール) — Goroutine-style concurrency for JavaScript",
+  "version": "0.1.2",
+  "description": "puru (プール) — A thread pool with Go-style concurrency primitives for JavaScript",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

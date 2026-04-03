@@ -5,7 +5,7 @@
 ### Added
 
 - `spawn(fn, opts?)` — run functions in worker threads with automatic pool management
-- M:N scheduler with two modes:
+- Thread pool with two dispatch modes:
   - **Exclusive** (default) — 1 task per thread, optimal for CPU-bound work
   - **Concurrent** (`{ concurrent: true }`) — many tasks share threads, optimal for async/I/O work
 - `chan(capacity?)` — Go-style channels with send, recv, close, and async iteration

@@ -1,8 +1,8 @@
 # puru (プール)
 
-Goroutine-style concurrency for JavaScript with an **M:N scheduler** — multiplexes thousands of tasks onto a small pool of OS threads, just like Go.
+A thread pool with Go-style concurrency primitives for JavaScript — spawn tasks off the main thread with channels, WaitGroup, select, and more. No worker files, no boilerplate.
 
-Works on **Node.js** and **Bun**. No separate worker files, no manual message passing.
+Works on **Node.js** and **Bun**.
 
 *puru (プール) means "pool" in Japanese.*
 
@@ -21,7 +21,7 @@ import { spawn, chan, WaitGroup, select, after } from '@dmop/puru'
 const { result } = spawn(() => fibonacci(40))
 console.log(await result)
 
-// I/O work — many tasks share worker threads (M:N scheduling)
+// I/O work — many tasks share worker threads
 const wg = new WaitGroup()
 for (const url of urls) {
   wg.spawn(() => fetch(url).then(r => r.json()), { concurrent: true })
@@ -31,10 +31,10 @@ const results = await wg.wait()
 
 ## How It Works
 
-puru uses an **M:N scheduler** — M tasks are multiplexed onto N OS threads:
+puru manages a **thread pool** — tasks are dispatched onto a fixed set of worker threads:
 
 ```text
-              puru scheduler
+              puru thread pool
     ┌──────────────────────────────┐
     │                              │
     │   Task 1 ─┐                  │
@@ -58,7 +58,7 @@ puru uses an **M:N scheduler** — M tasks are multiplexed onto N OS threads:
 | **Exclusive** (default) | `spawn(fn)` | CPU-bound work | 1 task per thread, full core usage |
 | **Concurrent** | `spawn(fn, { concurrent: true })` | I/O-bound / async work | Many tasks share a thread's event loop |
 
-This is the same model Go uses: goroutines (M) are scheduled onto OS threads (N). CPU-bound work gets a dedicated thread. I/O-bound work shares threads efficiently.
+CPU-bound work gets a dedicated thread. I/O-bound work shares threads efficiently. The API is inspired by Go's concurrency primitives (channels, WaitGroup, select), but the underlying mechanism is a thread pool — not a green thread scheduler.
 
 ## Why puru
 
@@ -122,7 +122,7 @@ const results = await wg.wait()
 | --- | --- | --- | --- | --- |
 | Separate worker file | Required | Required | Required | **Not needed** |
 | Inline functions | No | No | No | **Yes** |
-| M:N scheduler | No | No | No | **Yes** |
+| Managed thread pool | No | No | No | **Yes** |
 | Concurrent mode (I/O) | No | No | No | **Yes** |
 | Channels (cross-thread) | No | No | No | **Yes** |
 | Cancellation | No | No | No | **Yes** |
@@ -188,7 +188,7 @@ for await (const value of ch) {
 }
 ```
 
-**Channels in workers** — pass channels to `spawn()` and use them from worker threads, just like Go:
+**Channels in workers** — pass channels to `spawn()` and use them across worker threads:
 
 ```typescript
 const ch = chan<number>(10)
@@ -375,7 +375,7 @@ npm run bench:bun      # all benchmarks (Bun)
 | Main-thread channels only | 174 ms | 1.0x |
 | **puru fan-out (4 workers)** | **51 ms** | **3.4x faster** |
 
-### M:N Concurrent Async (Node.js)
+### Concurrent Async (Node.js)
 
 100 async tasks with simulated I/O + CPU:
 
@@ -383,7 +383,7 @@ npm run bench:bun      # all benchmarks (Bun)
 | --- | --: | --: |
 | Sequential | 1,140 ms | baseline |
 | Promise.all (main thread) | 20 ms | 58x faster |
-| **puru concurrent (M:N)** | **16 ms** | **73x faster** |
+| **puru concurrent** | **16 ms** | **73x faster** |
 
 Both Promise.all and puru concurrent are fast — but puru runs everything **off the main thread**, keeping your server responsive under load.
 

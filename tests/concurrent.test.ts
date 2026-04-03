@@ -3,7 +3,7 @@ import { spawn, resetTaskCounter } from '../src/spawn.js'
 import { stats, resetPool } from '../src/pool.js'
 import { resetConfig, configure } from '../src/configure.js'
 
-describe('concurrent (M:N scheduler)', () => {
+describe('concurrent (shared thread pool)', () => {
   beforeEach(() => {
     resetConfig()
     configure({ maxThreads: 2, idleTimeout: 1000, concurrency: 64 })

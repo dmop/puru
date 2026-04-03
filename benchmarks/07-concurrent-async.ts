@@ -1,14 +1,14 @@
 /**
- * Benchmark: M:N Concurrent Async Tasks
+ * Benchmark: Concurrent Async Tasks
  *
- * Tests the M:N scheduler with many concurrent async tasks sharing
+ * Tests the thread pool with many concurrent async tasks sharing
  * few worker threads. Simulates I/O-bound workloads (like HTTP requests
  * or DB queries) by using setTimeout to mimic async wait times.
  *
  * Compares:
  *   1. Sequential (one at a time)
  *   2. Promise.all on main thread
- *   3. puru concurrent mode (M:N scheduler, off main thread)
+ *   3. puru concurrent mode (off main thread)
  */
 
 import { spawn, configure } from '../dist/index.js'
