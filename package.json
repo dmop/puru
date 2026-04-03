@@ -95,6 +95,10 @@
     "type": "git",
     "url": "git+https://github.com/dmop/puru.git"
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "homepage": "https://github.com/dmop/puru#readme",
   "bugs": {
     "url": "https://github.com/dmop/puru/issues"
