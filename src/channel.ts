@@ -4,9 +4,29 @@
 // The public recv() API still returns null for a closed channel — the symbol is not leaked.
 const CLOSED = Symbol('puru.channel.closed')
 
-export interface Channel<T extends NonNullable<unknown>> {
+/**
+ * A Go-style channel for communicating between async tasks and across worker threads.
+ *
+ * Use `chan<T>(capacity?)` to create a channel. Values must be structured-cloneable
+ * (no functions, symbols, or WeakRefs). `null` cannot be sent — `recv()` returns
+ * `null` only when the channel is closed.
+ *
+ * @example
+ * const ch = chan<number>(10)
+ * await ch.send(42)
+ * const value = await ch.recv() // 42
+ * ch.close()
+ * await ch.recv() // null — channel closed
+ *
+ * @example
+ * // Async iteration ends automatically when the channel is closed
+ * for await (const item of ch) {
+ *   process(item)
+ * }
+ */
+export interface Channel<T> {
   send(value: T): Promise<void>
-  /** Resolves with the next value, or null if the channel is closed. */
+  /** Resolves with the next value, or `null` if the channel is closed. */
   recv(): Promise<T | null>
   close(): void
   [Symbol.asyncIterator](): AsyncIterator<T>
@@ -25,7 +45,7 @@ interface PendingSend<T> {
 let channelIdCounter = 0
 const channelRegistry = new Map<string, ChannelImpl<NonNullable<unknown>>>()
 
-class ChannelImpl<T extends NonNullable<unknown>> implements Channel<T> {
+class ChannelImpl<T extends NonNullable<unknown>> implements Channel<T> { // constraint: can't create channels of nullable type
   /** @internal */
   readonly _id: string
   private buffer: T[] = []
@@ -37,7 +57,7 @@ class ChannelImpl<T extends NonNullable<unknown>> implements Channel<T> {
   constructor(capacity: number) {
     this._id = `__ch_${++channelIdCounter}`
     this.capacity = capacity
-    channelRegistry.set(this._id, this as ChannelImpl<NonNullable<unknown>>)
+    channelRegistry.set(this._id, this as unknown as ChannelImpl<NonNullable<unknown>>)
   }
 
   send(value: T): Promise<void> {
@@ -122,6 +142,34 @@ class ChannelImpl<T extends NonNullable<unknown>> implements Channel<T> {
   }
 }
 
+/**
+ * Create a Go-style channel for communicating between tasks and across worker threads.
+ *
+ * Provides backpressure: `send()` blocks when the buffer is full,
+ * `recv()` blocks when the buffer is empty. Channel values must be structured-cloneable
+ * (no functions, symbols, or WeakRefs). `null` cannot be sent — it signals closure.
+ *
+ * @param capacity Buffer size. `0` (default) = unbuffered: each `send()` blocks until a `recv()` is ready.
+ *
+ * @example
+ * const ch = chan<string>(5) // buffered channel, capacity 5
+ * await ch.send('hello')
+ * const msg = await ch.recv() // 'hello'
+ * ch.close()
+ *
+ * @example
+ * // Fan-out: multiple workers pulling from the same channel
+ * const input = chan<Job>(50)
+ * const output = chan<Result>(50)
+ *
+ * for (let i = 0; i < 4; i++) {
+ *   spawn(async ({ input, output }) => {
+ *     for await (const job of input) {
+ *       await output.send(processJob(job))
+ *     }
+ *   }, { channels: { input, output } })
+ * }
+ */
 export function chan<T extends NonNullable<unknown>>(capacity: number = 0): Channel<T> {
   if (capacity < 0 || !Number.isInteger(capacity)) {
     throw new RangeError('Channel capacity must be a non-negative integer')

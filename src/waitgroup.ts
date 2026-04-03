@@ -2,14 +2,53 @@ import { spawn } from './spawn.js'
 import type { SpawnResult } from './types.js'
 import type { Channel } from './channel.js'
 
+/**
+ * Structured concurrency: spawn multiple tasks and wait for all to complete.
+ *
+ * Like `Promise.all`, but tasks run in worker threads across CPU cores. Results are
+ * returned in the order tasks were spawned. A shared `AbortSignal` lets long-running
+ * tasks observe cooperative cancellation via `cancel()`.
+ *
+ * For fail-fast behavior (cancel all on first error), use `ErrGroup` instead.
+ *
+ * @example
+ * // CPU-bound parallel work
+ * const wg = new WaitGroup()
+ * wg.spawn(() => { /* define helpers inside — no closure captures *\/ })
+ * wg.spawn(() => { /* another CPU task *\/ })
+ * const [r1, r2] = await wg.wait()
+ *
+ * @example
+ * // Mixed CPU + I/O
+ * wg.spawn(() => crunchNumbers(), )
+ * wg.spawn(() => fetch('https://api.example.com').then(r => r.json()), { concurrent: true })
+ * const results = await wg.wait()
+ *
+ * @example
+ * // Tolerate partial failures with waitSettled
+ * const settled = await wg.waitSettled()
+ * for (const r of settled) {
+ *   if (r.status === 'fulfilled') use(r.value)
+ *   else console.error(r.reason)
+ * }
+ */
 export class WaitGroup {
   private tasks: SpawnResult<unknown>[] = []
   private controller = new AbortController()
 
+  /**
+   * An `AbortSignal` shared across all tasks in this group.
+   * Pass it into spawned functions so they can stop early when `cancel()` is called.
+   */
   get signal(): AbortSignal {
     return this.controller.signal
   }
 
+  /**
+   * Spawns a function on a worker thread and adds it to the group.
+   *
+   * @throws If the group has already been cancelled.
+   */
   spawn(
     fn: (() => unknown) | ((channels: Record<string, Channel<unknown>>) => unknown),
     opts?: { concurrent?: boolean; channels?: Record<string, Channel<unknown>> },
@@ -21,14 +60,26 @@ export class WaitGroup {
     this.tasks.push(handle)
   }
 
+  /**
+   * Waits for all tasks to complete successfully.
+   * Rejects as soon as any task throws.
+   */
   async wait(): Promise<unknown[]> {
     return Promise.all(this.tasks.map((t) => t.result))
   }
 
+  /**
+   * Waits for all tasks to settle (fulfilled or rejected) and returns each outcome.
+   * Never rejects — inspect each `PromiseSettledResult` to handle failures individually.
+   */
   async waitSettled(): Promise<PromiseSettledResult<unknown>[]> {
     return Promise.allSettled(this.tasks.map((t) => t.result))
   }
 
+  /**
+   * Cancels all tasks in the group and signals the shared `AbortSignal`.
+   * Already-settled tasks are unaffected.
+   */
   cancel(): void {
     this.controller.abort()
     for (const task of this.tasks) {

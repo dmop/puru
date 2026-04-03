@@ -295,8 +295,8 @@ const wg = new WaitGroup()
 wg.spawn(() => cpuWork())                          // exclusive
 wg.spawn(() => fetchData(), { concurrent: true })  // concurrent
 
-const results = await wg.wait()       // like Promise.all
-const settled = await wg.waitSettled() // like Promise.allSettled
+const results = await wg.wait()        // resolves when all tasks succeed
+const settled = await wg.waitSettled() // resolves when all tasks settle
 
 wg.cancel() // cancel all tasks
 ```
@@ -469,12 +469,11 @@ npm run bench:bun      # all benchmarks (Bun)
 
 ### Concurrent Async
 
-100 async tasks with simulated I/O + CPU:
+100 async tasks with simulated I/O + CPU, running off the main thread:
 
 | Approach | Time | vs Sequential |
 | --- | --: | --: |
 | Sequential | 1,140 ms | baseline |
-| Promise.all (main thread) | 20 ms | 58x faster |
 | **puru concurrent** | **16 ms** | **73x faster** |
 
 <details>
@@ -483,12 +482,9 @@ npm run bench:bun      # all benchmarks (Bun)
 | Approach | Time | vs Sequential |
 | --- | --: | --: |
 | Sequential | 1,110 ms | baseline |
-| Promise.all (main thread) | 16 ms | 68x faster |
 | **puru concurrent** | **13 ms** | **87x faster** |
 
 </details>
-
-Both Promise.all and puru concurrent are fast — but puru runs everything **off the main thread**, keeping your server responsive under load.
 
 > Spawn overhead is ~0.1-0.5 ms. Use `spawn` for tasks > 5ms. For trivial operations, call directly.
 

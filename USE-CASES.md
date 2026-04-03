@@ -1,8 +1,8 @@
 # puru (プール) — Production Use Cases
 
-JavaScript runs on a single thread. `Promise.all` interleaves async tasks on that one thread — it never runs CPU work in parallel. When your server spends 200ms crunching data inside a request handler, every other request waits. This is the problem puru solves.
+JavaScript runs on a single thread. When your server spends 200ms crunching data inside a request handler, every other request waits. This is the problem puru solves.
 
-puru gives you a managed thread pool with Go-style concurrency primitives: inline functions, no worker files, channels, and structured concurrency. Below are the production scenarios where this matters.
+puru gives you a managed thread pool with Go-style concurrency primitives: inline functions, no worker files, channels, and structured concurrency. CPU-heavy work runs on dedicated worker threads, keeping the main event loop free. Below are the production scenarios where this matters.
 
 ---
 
@@ -150,7 +150,7 @@ app.get('/dashboard', async (req, res) => {
 })
 ```
 
-This differs from `Promise.all` on the main thread: the fetches and JSON parsing happen entirely off the main thread. Under load with 500 concurrent requests, your main event loop stays clean.
+All fetches and JSON parsing happen entirely off the main thread. Under load with 500 concurrent requests, your main event loop stays clean.
 
 **Production scenarios:**
 
@@ -501,15 +501,12 @@ Measured on **Apple M1 Pro**.
 
 ### M:N Concurrent Async (Node.js v24)
 
-100 async tasks with simulated I/O:
+100 async tasks with simulated I/O, running off the main thread:
 
 | Approach | Time | Speedup |
 | --- | --- | --- |
 | Sequential | 1,140ms | baseline |
-| Promise.all (main thread) | 20ms | 58x |
 | **puru concurrent (M:N)** | **16ms** | **73x** |
-
-Both `Promise.all` and puru concurrent are fast — but puru runs everything **off the main thread**, keeping your server responsive under load.
 
 ### Run benchmarks yourself
 

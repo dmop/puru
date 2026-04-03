@@ -1,9 +1,51 @@
 type SelectCase<T = unknown> = [Promise<T>, (value: T) => void]
 
+/**
+ * Options for `select()`.
+ *
+ * `default` makes the call non-blocking: if no case is immediately ready,
+ * the default handler runs instead of waiting. This mirrors Go's `select { default: ... }`.
+ */
 export interface SelectOptions {
   default?: () => void
 }
 
+/**
+ * Wait for the first of multiple promises to resolve, like Go's `select`.
+ *
+ * Each case is a `[promise, handler]` tuple. The handler for the first settled
+ * promise is called with its value. All other handlers are ignored.
+ *
+ * If `opts.default` is provided, `select` becomes non-blocking: if no promise
+ * is already resolved, the default runs immediately (Go's `select { default: ... }`).
+ *
+ * Commonly used with `ch.recv()`, `after()`, and `spawn().result`.
+ *
+ * @example
+ * // Block until a channel message arrives or timeout after 5s
+ * await select([
+ *   [ch.recv(), (value) => console.log('received', value)],
+ *   [after(5000), () => console.log('timed out')],
+ * ])
+ *
+ * @example
+ * // Non-blocking: check a channel without waiting
+ * await select(
+ *   [[ch.recv(), (value) => process(value)]],
+ *   { default: () => console.log('channel empty — doing other work') },
+ * )
+ *
+ * @example
+ * // Race two worker results against a deadline
+ * const { result: fast } = spawn(() => quickSearch(query))
+ * const { result: deep } = spawn(() => deepSearch(query))
+ *
+ * let response: Result
+ * await select([
+ *   [fast, (r) => { response = r }],
+ *   [after(200), () => { response = { partial: true } }],
+ * ])
+ */
 export function select(
   cases: SelectCase[],
   opts?: SelectOptions,

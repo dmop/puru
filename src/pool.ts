@@ -336,7 +336,7 @@ export class WorkerPool {
 
     try {
       if (msg.op === 'send') {
-        await channel.send(msg.value)
+        await channel.send(msg.value as NonNullable<unknown>)
         worker.postMessage({
           type: 'channel-result',
           correlationId: msg.correlationId,
