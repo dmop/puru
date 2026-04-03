@@ -109,7 +109,7 @@ describe('concurrent (shared thread pool)', () => {
 
     toCancel.cancel()
 
-    await expect(toCancel.result).rejects.toThrow()
+    await expect(toCancel.result).rejects.toThrow('Task was cancelled')
     expect(await slow.result).toBe('slow')
     expect(await survivor.result).toBe('survivor')
   })

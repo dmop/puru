@@ -81,8 +81,8 @@ configure({ adapter: 'auto' })
   try {
     await result
     clearTimeout(timer)
-  } catch (err: any) {
-    if (err.name === 'AbortError') {
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
       console.log('Task cancelled as expected')
     } else {
       throw err

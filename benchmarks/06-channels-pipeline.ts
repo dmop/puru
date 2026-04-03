@@ -53,7 +53,6 @@ async function main() {
     }, { channels: { out: input }, concurrent: true })
 
     // N transform workers: pull from input, push to output
-    let doneCount = 0
     for (let w = 0; w < NUM_TRANSFORM_WORKERS; w++) {
       spawn(async ({ input, output }) => {
         for await (const raw of input) {

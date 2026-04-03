@@ -1,10 +1,28 @@
 # puru (プール)
 
-A thread pool with Go-style concurrency primitives for JavaScript — spawn tasks off the main thread with channels, WaitGroup, select, and more. No worker files, no boilerplate.
+> A thread pool for JavaScript with Go-style concurrency primitives.
+>
+> Run work off the main thread with inline functions, channels, `WaitGroup`, `ErrGroup`, `select`, `Mutex`, `Once`, and more. No worker files. No boilerplate.
 
-Works on **Node.js** and **Bun**. Deno support coming soon.
+`puru` is for the moment when `Promise.all()` is no longer enough, but raw `worker_threads` feels too low-level.
 
-*puru (プール) means "pool" in Japanese.*
+- CPU-heavy work: use dedicated worker threads
+- Async / I/O-heavy work: share worker threads efficiently with `concurrent: true`
+- Coordination: use channels, `WaitGroup`, `ErrGroup`, `select`, `Mutex`, `Once`, and `ticker`
+- Ergonomics: write worker logic inline or define reusable typed tasks
+
+Works on **Node.js >= 18** and **Bun**.
+
+## Why This Exists
+
+JavaScript apps usually hit one of these walls:
+
+- A request handler does 200ms of CPU work and stalls the event loop
+- You want worker threads, but you do not want separate worker files and message plumbing
+- You need more than raw parallelism: cancellation, fan-out, backpressure, coordination
+- You like Go's concurrency model and want something similar in JavaScript
+
+`puru` gives you a managed worker pool with a much nicer programming model.
 
 ## Install
 
@@ -14,504 +32,211 @@ npm install @dmop/puru
 bun add @dmop/puru
 ```
 
-## Quick Start
+## 30-Second Tour
 
-```typescript
-import { spawn, chan, WaitGroup, select, after } from '@dmop/puru'
+```ts
+import { spawn, task, WaitGroup, chan } from '@dmop/puru'
 
-// CPU work — runs in a dedicated worker thread
-const { result } = spawn(() => fibonacci(40))
-console.log(await result)
-
-// I/O work — many tasks share worker threads
-const wg = new WaitGroup()
-for (const url of urls) {
-  wg.spawn(() => fetch(url).then(r => r.json()), { concurrent: true })
-}
-const results = await wg.wait()
-```
-
-## How It Works
-
-puru manages a **thread pool** — tasks are dispatched onto a fixed set of worker threads:
-
-```text
-              puru thread pool
-    ┌──────────────────────────────┐
-    │                              │
-    │   Task 1 ─┐                  │
-    │   Task 2 ─┤──► Thread 1     │
-    │   Task 3 ─┘    (shared)     │
-    │                              │
-    │   Task 4 ────► Thread 2     │  N threads
-    │                (exclusive)   │  (os.availableParallelism)
-    │                              │
-    │   Task 5 ─┐                  │
-    │   Task 6 ─┤──► Thread 3     │
-    │   Task 7 ─┘    (shared)     │
-    │                              │
-    └──────────────────────────────┘
-```
-
-**Two modes:**
-
-| Mode | Flag | Best for | How it works |
-| --- | --- | --- | --- |
-| **Exclusive** (default) | `spawn(fn)` | CPU-bound work | 1 task per thread, full core usage |
-| **Concurrent** | `spawn(fn, { concurrent: true })` | I/O-bound / async work | Many tasks share a thread's event loop |
-
-CPU-bound work gets a dedicated thread. I/O-bound work shares threads efficiently. The API is inspired by Go's concurrency primitives (channels, WaitGroup, select), but the underlying mechanism is a thread pool — not a green thread scheduler.
-
-## Why puru
-
-Same task, four ways — process 4 items in parallel:
-
-**worker_threads** — 2 files, 15 lines, manual everything:
-
-```typescript
-// worker.js (separate file required)
-const { parentPort } = require('worker_threads')
-parentPort.on('message', (data) => {
-  parentPort.postMessage(heavyWork(data))
+// 1. One CPU-heavy task on a dedicated worker
+const { result: fib } = spawn(() => {
+  function fibonacci(n: number): number {
+    if (n <= 1) return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+  }
+  return fibonacci(40)
 })
 
-// main.js
-import { Worker } from 'worker_threads'
-const results = await Promise.all(items.map(item =>
-  new Promise((resolve, reject) => {
-    const w = new Worker('./worker.js')
-    w.postMessage(item)
-    w.on('message', resolve)
-    w.on('error', reject)
-  })
-))
-```
-
-**Tinypool** — still needs a separate file:
-
-```typescript
-// worker.js (separate file required)
-export default function(data) { return heavyWork(data) }
-
-// main.js
-import Tinypool from 'tinypool'
-const pool = new Tinypool({ filename: './worker.js' })
-const results = await Promise.all(items.map(item => pool.run(item)))
-```
-
-**Piscina** — same pattern, separate file:
-
-```typescript
-// worker.js (separate file required)
-module.exports = function(data) { return heavyWork(data) }
-
-// main.js
-import Piscina from 'piscina'
-const pool = new Piscina({ filename: './worker.js' })
-const results = await Promise.all(items.map(item => pool.run(item)))
-```
-
-**puru** — one file, 4 lines:
-
-```typescript
-import { WaitGroup } from '@dmop/puru'
-const wg = new WaitGroup()
-for (const item of items) wg.spawn(() => heavyWork(item))
-const results = await wg.wait()
-```
-
-| Feature | worker_threads | Tinypool | Piscina | **puru** |
-| --- | --- | --- | --- | --- |
-| Separate worker file | Required | Required | Required | **Not needed** |
-| Inline functions | No | No | No | **Yes** |
-| Managed thread pool | No | No | No | **Yes** |
-| Concurrent mode (I/O) | No | No | No | **Yes** |
-| Channels (cross-thread) | No | No | No | **Yes** |
-| Cancellation | No | No | No | **Yes** |
-| WaitGroup / ErrGroup | No | No | No | **Yes** |
-| select (with default) | No | No | No | **Yes** |
-| Mutex / Once | No | No | No | **Yes** |
-| Ticker | No | No | No | **Yes** |
-| Backpressure | No | No | No | **Yes** |
-| Priority scheduling | No | No | Yes | **Yes** |
-| Pool management | Manual | Automatic | Automatic | **Automatic** |
-| Bun support | No | No | No | **Yes** |
-
-### puru vs Node.js Cluster
-
-These solve different problems and are meant to be used together in production.
-
-**Node Cluster** copies your entire app into N processes. The OS load-balances incoming connections across them. The goal is request throughput — use all cores to handle more concurrent HTTP requests.
-
-**puru** manages a thread pool inside a single process. Heavy tasks are offloaded off the main event loop to worker threads. The goal is CPU task isolation — use all cores without blocking the event loop.
-
-```text
-Node Cluster (4 processes):
-
-         OS / Load Balancer
-    ┌─────────┬─────────┬─────────┐
-    ▼         ▼         ▼         ▼
-┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
-│Process │ │Process │ │Process │ │Process │
-│full app│ │full app│ │full app│ │full app│
-│own DB  │ │own DB  │ │own DB  │ │own DB  │
-│~100MB  │ │~100MB  │ │~100MB  │ │~100MB  │
-└────────┘ └────────┘ └────────┘ └────────┘
-
-puru (1 process, thread pool):
-
-┌──────────────────────────────────────┐
-│          Your App (1 process)        │
-│                                      │
-│  Main thread — handles HTTP, DB, I/O │
-│                                      │
-│  ┌──────────┐  ┌──────────┐         │
-│  │ Thread 1 │  │ Thread 2 │  ...    │
-│  │ CPU task │  │ CPU task │         │
-│  └──────────┘  └──────────┘         │
-│  shared memory, one DB pool          │
-└──────────────────────────────────────┘
-```
-
-What happens without puru, even with Cluster:
-
-```text
-Request 1 → Process 1 → resize image (2s) → Process 1 event loop FROZEN
-Request 2 → Process 2 → handles fine ✓
-Request 3 → Process 3 → handles fine ✓
-(other processes still work, but each process still blocks on heavy tasks)
-
-With puru inside each process:
-Request 1 → spawn(resizeImage) → worker thread, main thread free ✓
-Request 2 → main thread handles instantly ✓
-Request 3 → main thread handles instantly ✓
-```
-
-In production, use both:
-
-```text
-PM2 / Cluster (4 processes)    ← maximise request throughput
-  └── each process runs puru   ← keep each event loop unblocked
-```
-
-| | Cluster | puru |
-| --- | --- | --- |
-| Unit | Process | Thread |
-| Memory | ~100MB per copy | Shared, much lower |
-| Shared state | Needs Redis/IPC | Same process |
-| Solves | Request throughput | CPU task offloading |
-| Event loop | Still blocks per process | Never blocks |
-| DB connections | One pool per process | One pool total |
-| Bun support | No cluster module | Yes |
-
-## API
-
-### `spawn(fn, opts?)`
-
-Run a function in a worker thread. Returns `{ result: Promise<T>, cancel: () => void }`.
-
-```typescript
-// CPU-bound — exclusive mode (default)
-const { result } = spawn(() => fibonacci(40))
-
-// I/O-bound — concurrent mode (many tasks per thread)
-const { result } = spawn(() => fetch(url), { concurrent: true })
-
-// With priority
-const { result } = spawn(() => criticalWork(), { priority: 'high' })
-
-// Cancel
-const { result, cancel } = spawn(() => longTask())
-setTimeout(cancel, 5000)
-```
-
-**Exclusive mode** (default): the function gets a dedicated thread. Use for CPU-heavy work.
-
-**Concurrent mode** (`{ concurrent: true }`): multiple tasks share a thread's event loop. Use for async/I/O work where you want to run thousands of tasks without thousands of threads.
-
-Functions must be self-contained — they cannot capture variables from the enclosing scope:
-
-```typescript
-const x = 42
-spawn(() => x + 1)   // ReferenceError: x is not defined
-spawn(() => 42 + 1)  // works
-```
-
-### `chan(capacity?)`
-
-Create a channel for communicating between async tasks — including across worker threads.
-
-```typescript
-const ch = chan<number>(10) // buffered, capacity 10
-const ch = chan<string>()   // unbuffered, capacity 0
-
-await ch.send(42)
-const value = await ch.recv() // 42
-
-ch.close()
-await ch.recv() // null (closed)
-
-// Async iteration
-for await (const value of ch) {
-  process(value)
-}
-```
-
-**Channels in workers** — pass channels to `spawn()` and use them across worker threads:
-
-```typescript
-const ch = chan<number>(10)
-
-// Producer worker
-spawn(async ({ ch }) => {
-  for (let i = 0; i < 100; i++) await ch.send(i)
-  ch.close()
-}, { channels: { ch } })
-
-// Consumer worker
-spawn(async ({ ch }) => {
-  for await (const item of ch) process(item)
-}, { channels: { ch } })
-
-// Fan-out: multiple workers pulling from the same channel
-const input = chan<Job>(50)
-const output = chan<Result>(50)
-
-for (let i = 0; i < 4; i++) {
-  spawn(async ({ input, output }) => {
-    for await (const job of input) {
-      await output.send(processJob(job))
-    }
-  }, { channels: { input, output } })
-}
-```
-
-### `WaitGroup`
-
-Structured concurrency. Spawn multiple tasks, wait for all.
-
-```typescript
-const wg = new WaitGroup()
-wg.spawn(() => cpuWork())                          // exclusive
-wg.spawn(() => fetchData(), { concurrent: true })  // concurrent
-
-const results = await wg.wait()        // resolves when all tasks succeed
-const settled = await wg.waitSettled() // resolves when all tasks settle
-
-wg.cancel() // cancel all tasks
-```
-
-### `ErrGroup`
-
-Like `WaitGroup`, but cancels all remaining tasks on first error. The Go standard for production code (`golang.org/x/sync/errgroup`).
-
-```typescript
-const eg = new ErrGroup()
-eg.spawn(() => fetchUser(id))
-eg.spawn(() => fetchOrders(id))
-eg.spawn(() => fetchAnalytics(id))
-
-try {
-  const [user, orders, analytics] = await eg.wait()
-} catch (err) {
-  // First error — all other tasks were cancelled
-  console.error('Failed:', err)
-}
-```
-
-### `Mutex`
-
-Async mutual exclusion. Serialize access to shared resources under concurrency.
-
-```typescript
-const mu = new Mutex()
-
-// withLock — recommended (auto-unlocks on error)
-const result = await mu.withLock(async () => {
-  return await db.query('UPDATE ...')
+// 2. Reusable typed worker function
+const resize = task((width: number, height: number) => {
+  return { width, height, pixels: width * height }
 })
 
-// Manual lock/unlock
-await mu.lock()
-try { /* critical section */ }
-finally { mu.unlock() }
-```
-
-### `Once<T>`
-
-Run a function exactly once, even if called concurrently. All callers get the same result.
-
-```typescript
-const once = new Once<DBConnection>()
-const conn = await once.do(() => createExpensiveConnection())
-// Subsequent calls return the cached result
-```
-
-### `select(cases, opts?)`
-
-Wait for the first of multiple promises to resolve, like Go's `select`.
-
-```typescript
-// Blocking — waits for first ready
-await select([
-  [ch.recv(), (value) => console.log('received', value)],
-  [after(5000), () => console.log('timeout')],
-])
-
-// Non-blocking — returns immediately if nothing is ready (Go's select with default)
-await select(
-  [[ch.recv(), (value) => process(value)]],
-  { default: () => console.log('channel not ready') },
+// 3. Structured concurrency
+const wg = new WaitGroup()
+wg.spawn(() => {
+  let sum = 0
+  for (let i = 0; i < 1_000_000; i++) sum += i
+  return sum
+})
+wg.spawn(
+  () => fetch('https://api.example.com/users/1').then((r) => r.json()),
+  { concurrent: true },
 )
+
+// 4. Channels for coordination
+const jobs = chan<number>(10)
+spawn(async ({ jobs }) => {
+  for (let i = 0; i < 10; i++) await jobs.send(i)
+  jobs.close()
+}, { channels: { jobs }, concurrent: true })
+
+console.log(await fib)
+console.log(await resize(800, 600))
+console.log(await wg.wait())
 ```
 
-### `after(ms)` / `ticker(ms)`
+## The Big Rule
 
-Timers for use with `select` and async iteration.
+Functions passed to `spawn()` are serialized with `.toString()` and executed in a worker.
 
-```typescript
-await after(1000) // one-shot: resolves after 1 second
+That means they **cannot capture variables from the enclosing scope**.
 
-// Repeating: tick every 500ms
-const t = ticker(500)
-for await (const _ of t) {
-  console.log('tick')
-  if (shouldStop) t.stop()
-}
+```ts
+const x = 42
+
+spawn(() => x + 1) // ReferenceError at runtime
+
+spawn(() => {
+  const x = 42
+  return x + 1
+}) // works
 ```
 
-### `register(name, fn)` / `run(name, ...args)`
+If you need to pass arguments repeatedly, prefer `task(fn)`.
 
-Named task registry. Register functions by name, call them by name.
+## Why People Reach for puru
 
-```typescript
-register('resize', (buffer, w, h) => sharp(buffer).resize(w, h).toBuffer())
-const resized = await run('resize', imageBuffer, 800, 600)
-```
+### Inline worker code
 
-### `configure(opts?)`
+No separate worker file in the normal case.
 
-Optional global configuration. Must be called before the first `spawn()`.
+```ts
+import { spawn } from '@dmop/puru'
 
-```typescript
-configure({
-  maxThreads: 4,        // default: os.availableParallelism()
-  concurrency: 64,      // max concurrent tasks per shared worker (default: 64)
-  idleTimeout: 30_000,  // kill idle workers after 30s (default)
-  adapter: 'auto',      // 'auto' | 'node' | 'bun' | 'inline'
+const { result } = spawn(() => {
+  let sum = 0
+  for (let i = 0; i < 10_000_000; i++) sum += i
+  return sum
 })
 ```
 
-### `stats()` / `resize(n)`
+### Two execution modes
 
-```typescript
-const s = stats()  // { totalWorkers, idleWorkers, busyWorkers, queuedTasks, ... }
-resize(8)          // scale pool up/down at runtime
-```
+| Mode | Use it for | What happens |
+| --- | --- | --- |
+| `spawn(fn)` | CPU-bound work | The task gets a dedicated worker |
+| `spawn(fn, { concurrent: true })` | Async / I/O-heavy work | Multiple tasks share a worker's event loop |
 
-### `detectRuntime()` / `detectCapability()`
+This is the key distinction:
 
-```typescript
-detectRuntime()     // 'node' | 'bun' | 'deno' | 'browser'
-detectCapability()  // 'full-threads' | 'single-thread'
-```
+- `exclusive` mode is for actual CPU parallelism
+- `concurrent` mode is for lots of tasks that mostly `await`
 
-## Benchmarks
+### More than a worker pool
 
-Apple M1 Pro (8 cores), 16 GB RAM. Median of 5 runs after warmup.
+`puru` is not just `spawn()`.
 
-```bash
-npm run bench          # all benchmarks (Node.js)
-npm run bench:bun      # all benchmarks (Bun)
-```
+- `chan()` for cross-thread coordination and backpressure
+- `WaitGroup` for “run many, wait for all”
+- `ErrGroup` for “fail fast, cancel the rest”
+- `select()` for first-ready coordination
+- `Mutex` for shared resource protection
+- `Once` for one-time initialization under concurrency
+- `task()` for reusable typed worker functions
 
-### CPU-Bound Parallelism
+## When To Use What
 
-| Benchmark | Without puru | With puru | Speedup |
-| --- | --: | --: | --: |
-| Fibonacci (fib(38) x8) | 4,345 ms | 2,131 ms | **2.0x** |
-| Prime counting (2M range) | 335 ms | 77 ms | **4.4x** |
-| Matrix multiply (200x200 x8) | 140 ms | 39 ms | **3.6x** |
-| Data processing (100K items x8) | 221 ms | 67 ms | **3.3x** |
+| Situation | Best tool |
+| --- | --- |
+| One heavy synchronous task | `spawn(fn)` |
+| Same worker logic called many times with different inputs | `task(fn)` |
+| Many async tasks that mostly wait on I/O | `spawn(fn, { concurrent: true })` |
+| Parallel batch with “wait for everything” | `WaitGroup` |
+| Parallel batch where the first failure should cancel the rest | `ErrGroup` |
+| Producer/consumer or fan-out/fan-in pipeline | `chan()` |
+| Non-blocking coordination between async operations | `select()` |
 
-<details>
-<summary>Bun results</summary>
+## Why Not Just Use...
 
-| Benchmark | Without puru | With puru | Speedup |
-| --- | --: | --: | --: |
-| Fibonacci (fib(38) x8) | 2,208 ms | 380 ms | **5.8x** |
-| Prime counting (2M range) | 201 ms | 50 ms | **4.0x** |
-| Matrix multiply (200x200 x8) | 197 ms | 57 ms | **3.5x** |
-| Data processing (100K items x8) | 214 ms | 109 ms | **2.0x** |
+### `Promise.all()`
 
-</details>
+Use `Promise.all()` when work is already cheap and async.
 
-### Channels Fan-Out Pipeline
+Use `puru` when:
 
-200 items with CPU-heavy transform, 4 parallel transform workers:
+- work is CPU-heavy
+- you need the main thread to stay responsive under load
+- you want worker coordination primitives, not just promise aggregation
 
-| Approach | Time | vs Sequential |
-| --- | --: | --: |
-| Sequential (no channels) | 176 ms | baseline |
-| Main-thread channels only | 174 ms | 1.0x |
-| **puru fan-out (4 workers)** | **51 ms** | **3.4x faster** |
+### `worker_threads`
 
-<details>
-<summary>Bun results</summary>
+Raw `worker_threads` are powerful, but they are low-level:
 
-| Approach | Time | vs Sequential |
-| --- | --: | --: |
-| Sequential (no channels) | 59 ms | baseline |
-| Main-thread channels only | 60 ms | 1.0x |
-| **puru fan-out (4 workers)** | **22 ms** | **2.7x faster** |
+- separate worker entry files
+- manual message passing
+- manual pooling
+- no built-in channels, `WaitGroup`, `ErrGroup`, or `select`
 
-</details>
+`puru` keeps the power and removes most of the ceremony.
 
-### Concurrent Async
+### Cluster
 
-100 async tasks with simulated I/O + CPU, running off the main thread:
+Cluster solves a different problem.
 
-| Approach | Time | vs Sequential |
-| --- | --: | --: |
-| Sequential | 1,140 ms | baseline |
-| **puru concurrent** | **16 ms** | **73x faster** |
+- Cluster: more processes, better request throughput
+- `puru`: offload heavy work inside each process
 
-<details>
-<summary>Bun results</summary>
+They work well together.
 
-| Approach | Time | vs Sequential |
-| --- | --: | --: |
-| Sequential | 1,110 ms | baseline |
-| **puru concurrent** | **13 ms** | **87x faster** |
+## Feature Snapshot
 
-</details>
+| Feature | `puru` |
+| --- | --- |
+| Inline worker functions | Yes |
+| Dedicated CPU workers | Yes |
+| Shared-worker async mode | Yes |
+| Channels across workers | Yes |
+| WaitGroup / ErrGroup | Yes |
+| `select` / timers | Yes |
+| Mutex / Once | Yes |
+| Bun support | Yes |
+| TypeScript support | Yes |
 
-> Spawn overhead is ~0.1-0.5 ms. Use `spawn` for tasks > 5ms. For trivial operations, call directly.
+## Performance
+
+`puru` is designed for real work, not micro-bench tricks.
+
+- Spawn overhead is roughly `0.1-0.5ms`
+- As a rule of thumb, use worker threads for tasks above `~5ms`
+- CPU-bound benchmarks show real speedups from multi-core execution
+- Concurrent async benchmarks show large gains when many tasks mostly wait on I/O off the main thread
+
+Full benchmark tables live in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
+## Docs
+
+- [API reference](docs/API.md)
+- [Benchmarks](docs/BENCHMARKS.md)
+- [Production use cases](USE-CASES.md)
+- [Examples](examples)
+- [AI assistant guide](AGENTS.md)
+- [Full LLM reference](llms-full.txt)
 
 ## Runtimes
 
-| Runtime | Support | How |
+| Runtime | Support | Notes |
 | --- | --- | --- |
-| Node.js >= 18 | Full | `worker_threads` |
-| Bun | Full | Web Workers (file-based) |
-| Deno | Planned | — |
-| Cloudflare Workers | Error | No thread support |
-| Vercel Edge | Error | No thread support |
+| Node.js >= 18 | Full | Uses `worker_threads` |
+| Bun | Full | Uses Web Workers |
+| Deno | Planned | Not yet implemented |
 
 ## Testing
 
-```typescript
+Use the inline adapter to run tasks on the main thread in tests:
+
+```ts
 import { configure } from '@dmop/puru'
-configure({ adapter: 'inline' }) // runs tasks in main thread, no real workers
+
+configure({ adapter: 'inline' })
 ```
 
 ## Limitations
 
-- Functions passed to `spawn()` cannot capture variables from the enclosing scope
-- Channel values must be structured-cloneable (no functions, symbols, or WeakRefs)
-- `null` cannot be sent through a channel (it's the "closed" sentinel)
-- `register()`/`run()` args must be JSON-serializable
-- Channel operations from workers have ~0.1-0.5ms RPC overhead per send/recv (fine for coarse-grained coordination, not for per-item micro-operations)
+- `spawn()` functions cannot capture outer variables
+- Channel values must be structured-cloneable
+- `null` is reserved as the channel closed sentinel
+- `task()` arguments must be JSON-serializable
+- Channel ops from workers have RPC overhead, so use them for coordination, not ultra-fine-grained inner loops
 
 ## License
 

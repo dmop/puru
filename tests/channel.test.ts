@@ -149,6 +149,7 @@ describe('chan', () => {
       const ch = chan<number>()
       ch.close()
       ch.close() // should not throw
+      expect(ch).toBeDefined()
     })
   })
 

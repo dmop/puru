@@ -1,7 +1,8 @@
 import { serializeFunction } from './serialize.js'
 import { getPool } from './pool.js'
-import type { SpawnResult, Task } from './types.js'
 import type { Channel } from './channel.js'
+import { getChannelId } from './channel.js'
+import type { ChannelMap, ChannelValue, SpawnResult, StructuredCloneValue, Task, TaskError } from './types.js'
 
 let taskCounter = 0
 
@@ -46,12 +47,12 @@ let taskCounter = 0
  *   ch.close()
  * }, { channels: { ch } })
  */
-export function spawn<T>(
-  fn: (() => T | Promise<T>) | ((channels: Record<string, Channel<unknown>>) => T | Promise<T>),
+export function spawn<T extends StructuredCloneValue, TChannels extends Record<string, Channel<ChannelValue>> = Record<never, never>>(
+  fn: (() => T | Promise<T>) | ((channels: TChannels) => T | Promise<T>),
   opts?: {
     priority?: 'low' | 'normal' | 'high'
     concurrent?: boolean
-    channels?: Record<string, Channel<unknown>>
+    channels?: TChannels
   },
 ): SpawnResult<T> {
   const fnStr = serializeFunction(fn)
@@ -61,7 +62,7 @@ export function spawn<T>(
   const spawnStack = new Error().stack
 
   let resolveFn!: (value: T) => void
-  let rejectFn!: (reason: unknown) => void
+  let rejectFn!: (reason: TaskError) => void
   let settled = false
 
   const result = new Promise<T>((resolve, reject) => {
@@ -70,15 +71,11 @@ export function spawn<T>(
   })
 
   // Extract channel IDs if channels are provided
-  let channelMap: Record<string, string> | undefined
+  let channelMap: ChannelMap | undefined
   if (opts?.channels) {
     channelMap = {}
     for (const [name, ch] of Object.entries(opts.channels)) {
-      const impl = ch as unknown as { _id: string }
-      if (!impl._id) {
-        throw new Error(`Channel "${name}" is not a valid puru channel`)
-      }
-      channelMap[name] = impl._id
+      channelMap[name] = getChannelId(ch)
     }
   }
 

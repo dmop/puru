@@ -19,6 +19,12 @@ import { WaitGroup, configure } from '../dist/index.js'
 
 configure({ adapter: 'auto' })
 
+type EndpointResult = {
+  id: number
+  latency: number
+  data: string
+}
+
 // ─── CPU-bound fan-out ────────────────────────────────────────────────────────
 //
 // Split a large dataset across workers. Each worker gets a chunk.
@@ -95,7 +101,7 @@ configure({ adapter: 'auto' })
   const elapsed = Date.now() - start
 
   console.log(`  ${results.length} responses in ${elapsed}ms (longest was 50ms — ran in parallel)`)
-  for (const r of results as any[]) {
+  for (const r of results as EndpointResult[]) {
     console.log(`  Endpoint ${r.id}: ${r.latency}ms`)
   }
 }

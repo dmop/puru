@@ -48,7 +48,7 @@ describe('task()', () => {
   })
 
   it('throws on non-JSON-serializable arguments', () => {
-    const noop = task((_x: unknown) => null)
-    expect(() => noop(undefined)).toThrow('not JSON-serializable')
+    const noop = task((_x: string | null) => null)
+    expect(() => noop(undefined as never)).toThrow('not JSON-serializable')
   })
 })

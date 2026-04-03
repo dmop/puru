@@ -13,6 +13,11 @@ The most common production pain point. A single slow computation blocks your ent
 **The problem:** An Express/Fastify/Hono endpoint generates a report. It takes 300ms of pure CPU. During that time, health checks timeout, WebSocket pings are missed, and other requests queue up.
 
 ```ts
+const generateReportTask = task((rows: Array<Record<string, unknown>>) => {
+  // Put the expensive aggregation logic here so the worker has everything it needs.
+  return rows
+})
+
 // Before: blocks the event loop for 300ms
 app.get('/report/:id', async (req, res) => {
   const data = await db.query('SELECT * FROM sales WHERE region = ?', [req.params.id])
@@ -23,11 +28,7 @@ app.get('/report/:id', async (req, res) => {
 // After: event loop stays free
 app.get('/report/:id', async (req, res) => {
   const data = await db.query('SELECT * FROM sales WHERE region = ?', [req.params.id])
-  const { result } = spawn(() => {
-    // runs on a separate thread
-    return generateReport(data.rows)
-  })
-  res.json(await result)
+  res.json(await generateReportTask(data.rows))
 })
 ```
 
@@ -48,22 +49,18 @@ app.get('/report/:id', async (req, res) => {
 Image manipulation is CPU-heavy and perfectly parallelizable — each image is independent.
 
 ```ts
+const processImageTask = task((buffer: Uint8Array, width: number, height: number) => {
+  // Example placeholder for resize/encode logic.
+  return { buffer, width, height }
+})
+
 // Process a batch of uploaded images in parallel
 app.post('/upload', async (req, res) => {
   const files = req.files // 20 uploaded images
 
-  const wg = new WaitGroup()
-  for (const file of files) {
-    const buffer = file.buffer
-    const width = 800
-    const height = 600
-    wg.spawn(() => {
-      // Each image gets its own thread
-      return processImage(buffer, width, height)
-    })
-  }
-
-  const thumbnails = await wg.wait()
+  const thumbnails = await Promise.all(
+    files.map((file) => processImageTask(file.buffer, 800, 600)),
+  )
   await saveAll(thumbnails)
   res.json({ processed: thumbnails.length })
 })
@@ -84,6 +81,12 @@ app.post('/upload', async (req, res) => {
 Processing large datasets in stages: read, transform, aggregate, write. Channels provide natural backpressure so fast producers don't overwhelm slow consumers.
 
 ```ts
+import { chan, spawn, task, WaitGroup } from '@dmop/puru'
+
+const aggregateChunkTask = task((chunk: Record[]) => {
+  return chunk
+})
+
 const raw = chan<Record[]>(20)      // buffered: 20 chunks in flight
 const transformed = chan<Result>(20)
 
@@ -99,12 +102,12 @@ spawn(async () => {
 // Stage 2: Transform in parallel (CPU-bound → exclusive mode, 4 workers)
 const workers = new WaitGroup()
 for (let i = 0; i < 4; i++) {
-  workers.spawn(async () => {
+  workers.spawn(async ({ raw, transformed }) => {
     for await (const chunk of raw) {
-      const result = aggregateChunk(chunk)
+      const result = await aggregateChunkTask(chunk)
       await transformed.send(result)
     }
-  })
+  }, { channels: { raw, transformed } })
 }
 
 // Stage 3: Write results (I/O-bound)
@@ -133,24 +136,26 @@ for await (const result of transformed) {
 Backend-for-frontend (BFF) services that fan out to multiple microservices. Concurrent mode keeps threads efficient for I/O-heavy work.
 
 ```ts
+import { ErrGroup } from '@dmop/puru'
+
+const makeFetchTask = (url: string) =>
+  new Function(`return fetch(${JSON.stringify(url)}).then((r) => r.json())`) as () => Promise<unknown>
+
 app.get('/dashboard', async (req, res) => {
-  const wg = new WaitGroup()
+  const userId = String(req.user)
+  const eg = new ErrGroup()
 
-  wg.spawn(async () => fetch(`${USER_SVC}/profile/${req.user}`).then(r => r.json()),
-    { concurrent: true })
-  wg.spawn(async () => fetch(`${ORDER_SVC}/recent/${req.user}`).then(r => r.json()),
-    { concurrent: true })
-  wg.spawn(async () => fetch(`${ANALYTICS_SVC}/summary/${req.user}`).then(r => r.json()),
-    { concurrent: true })
-  wg.spawn(async () => fetch(`${NOTIFICATION_SVC}/unread/${req.user}`).then(r => r.json()),
-    { concurrent: true })
+  eg.spawn(makeFetchTask(`https://user-service.local/profile/${userId}`), { concurrent: true })
+  eg.spawn(makeFetchTask(`https://order-service.local/recent/${userId}`), { concurrent: true })
+  eg.spawn(makeFetchTask(`https://analytics-service.local/summary/${userId}`), { concurrent: true })
+  eg.spawn(makeFetchTask(`https://notification-service.local/unread/${userId}`), { concurrent: true })
 
-  const [profile, orders, analytics, notifications] = await wg.wait()
+  const [profile, orders, analytics, notifications] = await eg.wait()
   res.json({ profile, orders, analytics, notifications })
 })
 ```
 
-All fetches and JSON parsing happen entirely off the main thread. Under load with 500 concurrent requests, your main event loop stays clean.
+All fetches and JSON parsing happen off the main thread. Under load, the main event loop stays free while those worker tasks wait on I/O.
 
 **Production scenarios:**
 
@@ -166,14 +171,16 @@ All fetches and JSON parsing happen entirely off the main thread. Under load wit
 Password hashing, token verification, and encryption are intentionally slow (that's the point of bcrypt/argon2). At scale, they will destroy your event loop.
 
 ```ts
+const comparePasswordTask = task((password: string, hash: string) => {
+  return password === hash
+})
+
 // Auth service handling 100+ login attempts/sec
 app.post('/login', async (req, res) => {
   const user = await db.findUser(req.body.email)
 
   // bcrypt.compare takes 50-200ms of pure CPU
-  const { result } = spawn(() => {
-    return bcryptCompare(req.body.password, user.hash)
-  })
+  const result = comparePasswordTask(req.body.password, user.hash)
 
   if (await result) {
     res.json({ token: createJWT(user) })
@@ -198,12 +205,20 @@ app.post('/login', async (req, res) => {
 Real-time systems need bounded response times. `select` + `after` lets you race computation against a deadline — return the best result you have before timeout.
 
 ```ts
+const searchPrimaryIndexTask = task((query: string) => {
+  return { results: [query], partial: false }
+})
+
+const searchSecondaryIndexTask = task((query: string) => {
+  return { results: [`deep:${query}`], partial: false }
+})
+
 // Search with a 200ms SLA
 app.get('/search', async (req, res) => {
   const query = req.query.q
 
-  const { result: fast } = spawn(() => searchPrimaryIndex(query))
-  const { result: deep } = spawn(() => searchSecondaryIndex(query))
+  const fast = searchPrimaryIndexTask(String(query))
+  const deep = searchSecondaryIndexTask(String(query))
 
   let response: SearchResult
 
@@ -234,23 +249,24 @@ app.get('/search', async (req, res) => {
 Offload periodic work so it never impacts request handling.
 
 ```ts
+const rankAndBucketTask = task((scores: number[]) => {
+  return scores.sort((a, b) => b - a)
+})
+
+const compactAndAggregateTask = task((table: string) => {
+  return table
+})
+
 // Every 5 minutes: recompute leaderboard
 setInterval(async () => {
-  const { result } = spawn(() => {
-    const scores = computeAllPlayerScores()  // CPU-heavy
-    return rankAndBucket(scores)
-  })
-  const leaderboard = await result
+  const scores = computeAllPlayerScores()  // CPU-heavy preparation can also be moved into task() if needed
+  const leaderboard = await rankAndBucketTask(scores)
   await cache.set('leaderboard', leaderboard, { ttl: 300 })
 }, 5 * 60_000)
 
 // Every hour: clean and aggregate metrics
 setInterval(async () => {
-  const wg = new WaitGroup()
-  for (const table of METRIC_TABLES) {
-    wg.spawn(() => compactAndAggregate(table))
-  }
-  await wg.wait()
+  await Promise.all(METRIC_TABLES.map((table) => compactAndAggregateTask(table)))
 }, 60 * 60_000)
 ```
 
@@ -302,11 +318,22 @@ app.get('/api/:endpoint', async (req, res) => {
 When fetching from multiple services, fail fast and cancel remaining work on first error — don't waste resources on a request that's already failed.
 
 ```ts
+const makeProfileTask = (userId: string) =>
+  new Function(`return ({ userId: ${JSON.stringify(userId)} })`) as () => { userId: string }
+
+const makeOrdersTask = (userId: string) =>
+  new Function(`return ([{ userId: ${JSON.stringify(userId)} }])`) as () => Array<{ userId: string }>
+
+const makeNotificationsTask = (userId: string) =>
+  new Function(`return ([{ userId: ${JSON.stringify(userId)}, unread: true }])`) as () => Array<{ userId: string; unread: true }>
+
 app.get('/dashboard', async (req, res) => {
   const eg = new ErrGroup()
-  eg.spawn(() => fetchUserProfile(req.user))
-  eg.spawn(() => fetchRecentOrders(req.user))
-  eg.spawn(() => fetchNotifications(req.user))
+  const userId = String(req.user)
+
+  eg.spawn(makeProfileTask(userId))
+  eg.spawn(makeOrdersTask(userId))
+  eg.spawn(makeNotificationsTask(userId))
 
   try {
     const [profile, orders, notifications] = await eg.wait()
@@ -329,6 +356,7 @@ Expensive resources (DB connections, ML models, caches) should be initialized on
 ```ts
 const initDB = new Once<DBPool>()
 const initModel = new Once<Model>()
+const predictTask = task((features: unknown) => features)
 
 app.get('/predict', async (req, res) => {
   // Both initialize exactly once, even with 100 concurrent requests at startup
@@ -338,8 +366,8 @@ app.get('/predict', async (req, res) => {
   ])
 
   const data = await db.query('SELECT features FROM inputs WHERE id = ?', [req.params.id])
-  const { result } = spawn(() => model.predict(data))
-  res.json(await result)
+  // The worker cannot capture `model`; pass serializable inputs into a task or load the model inside the worker.
+  res.json(await predictTask(data))
 })
 ```
 
@@ -373,18 +401,25 @@ for await (const _ of t) {
 Replace `setInterval` with `Ticker` for structured periodic work that integrates with `select` and async iteration.
 
 ```ts
+const computeLeaderboardTask = task(() => {
+  return { leaders: [] }
+})
+
+const checkAllServicesTask = task(() => {
+  return { status: 'ok' as const }
+})
+
 // Recompute leaderboard every 5 minutes
 const leaderboardTicker = ticker(5 * 60_000)
 for await (const _ of leaderboardTicker) {
-  const { result } = spawn(() => computeLeaderboard())
-  await cache.set('leaderboard', await result)
+  await cache.set('leaderboard', await computeLeaderboardTask())
 }
 
 // Health check loop with timeout
 const healthTicker = ticker(10_000)
 for await (const _ of healthTicker) {
   await select([
-    [spawn(() => checkAllServices(), { concurrent: true }).result,
+    [spawn(() => ({ status: 'ok' as const }), { concurrent: true }).result,
       (status) => reportHealth(status)],
     [after(5000), () => reportHealth({ status: 'timeout' })],
   ])
@@ -408,7 +443,7 @@ const [users, orders, config] = await Promise.all([
 ])
 ```
 
-Use puru's concurrent mode when you have **hundreds of concurrent I/O tasks** or need to **keep the main thread responsive under load**.
+Use puru's concurrent mode when you have **many I/O-heavy tasks** or need to **keep the main thread responsive under load**.
 
 ### Tasks faster than 5ms
 
@@ -417,10 +452,13 @@ Spawn overhead is ~0.1-0.5ms (function serialization + thread dispatch). For mic
 ```ts
 // Bad — overhead > task cost
 spawn(() => 1 + 1)
-spawn(() => array.map(x => x * 2))  // 0.01ms of work
+spawn(() => [1, 2, 3].map((x) => x * 2))  // 0.01ms of work
 
 // Good — enough work to justify the thread
-spawn(() => sortAndAggregate(millionRows))  // 50ms of work
+spawn(() => {
+  const millionRows = Array.from({ length: 1_000_000 }, (_, i) => i)
+  return millionRows.reduce((sum, value) => sum + value, 0)
+})  // 50ms of work
 ```
 
 ### Shared mutable state
@@ -434,7 +472,7 @@ spawn(() => { counter++ })  // counter is undefined in the worker
 
 // Works: use a channel to collect results
 const ch = chan<number>(10)
-spawn(async () => { await ch.send(computePartialCount()) })
+spawn(async ({ ch }) => { await ch.send(1) }, { channels: { ch } })
 ```
 
 ### Tasks that need closures
@@ -445,9 +483,9 @@ Functions are serialized via `.toString()`. They cannot capture variables from t
 const threshold = 100
 spawn(() => filterAbove(data, threshold))  // threshold is undefined
 
-// Instead, inline the values or use register()
-register('filterAbove', (data, threshold) => filterAbove(data, threshold))
-const result = await run('filterAbove', data, 100)
+// Instead, pass values explicitly with task()
+const filterAboveTask = task((data: number[], threshold: number) => data.filter((n) => n > threshold))
+const result = await filterAboveTask(data, 100)
 ```
 
 ---

@@ -6,7 +6,7 @@
  * tasks and return faster.
  */
 
-import { spawn, WaitGroup, ErrGroup, configure } from '../dist/index.js'
+import { WaitGroup, ErrGroup, configure } from '../dist/index.js'
 import { bench, report } from './utils.js'
 
 async function main() {

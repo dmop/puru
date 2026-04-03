@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { WorkerPool } from '../src/pool.js'
 import { InlineAdapter } from '../src/adapters/inline.js'
+import type { StructuredCloneValue, Task, TaskError } from '../src/types.js'
 
 describe('InlineAdapter', () => {
   let pool: WorkerPool
 
   beforeEach(() => {
     pool = new WorkerPool(
-      { maxThreads: 2, strategy: 'fifo', idleTimeout: 500, adapter: 'inline' },
+      { maxThreads: 2, strategy: 'fifo', idleTimeout: 500, adapter: 'inline', concurrency: 64 },
       new InlineAdapter(),
     )
   })
@@ -45,12 +46,12 @@ describe('InlineAdapter', () => {
 })
 
 function createTask(id: string, fnStr: string) {
-  let resolve!: (value: unknown) => void
-  let reject!: (reason: unknown) => void
-  const result = new Promise((res, rej) => {
+  let resolve!: (value: StructuredCloneValue) => void
+  let reject!: (reason: TaskError) => void
+  const result = new Promise<StructuredCloneValue>((res, rej) => {
     resolve = res
     reject = rej
   })
-  const task = { id, fnStr, resolve, reject, priority: 'normal' as const }
+  const task: Task = { id, fnStr, resolve, reject, priority: 'normal', concurrent: false }
   return { task, result, promise: { task, result } }
 }

@@ -1,4 +1,6 @@
-type SelectCase<T = unknown> = [Promise<T>, (value: T) => void]
+import type { StructuredCloneValue } from './types.js'
+
+type SelectCase<T = StructuredCloneValue> = [Promise<T>, (value: T) => void]
 
 /**
  * Options for `select()`.

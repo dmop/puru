@@ -6,7 +6,7 @@
  * when no channel is ready.
  */
 
-import { chan, select, after } from '../dist/index.js'
+import { chan, select } from '../dist/index.js'
 import { bench, report } from './utils.js'
 
 async function main() {

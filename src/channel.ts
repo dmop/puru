@@ -1,3 +1,5 @@
+import type { ChannelValue } from './types.js'
+
 // Internal sentinel used to signal channel closure.
 // Using a symbol instead of null means null is a valid value to send through a channel
 // at the implementation level, and avoids silent failures if someone attempts to send null.
@@ -24,12 +26,16 @@ const CLOSED = Symbol('puru.channel.closed')
  *   process(item)
  * }
  */
-export interface Channel<T> {
+export interface Channel<T extends ChannelValue> {
   send(value: T): Promise<void>
   /** Resolves with the next value, or `null` if the channel is closed. */
   recv(): Promise<T | null>
   close(): void
   [Symbol.asyncIterator](): AsyncIterator<T>
+}
+
+interface ChannelHandle<T extends ChannelValue> extends Channel<T> {
+  readonly _id: string
 }
 
 interface PendingRecv<T> {
@@ -39,13 +45,13 @@ interface PendingRecv<T> {
 interface PendingSend<T> {
   value: T
   resolve: () => void
-  reject: (reason: unknown) => void
+  reject: (reason: Error) => void
 }
 
 let channelIdCounter = 0
-const channelRegistry = new Map<string, ChannelImpl<NonNullable<unknown>>>()
+const channelRegistry = new Map<string, ChannelHandle<ChannelValue>>()
 
-class ChannelImpl<T extends NonNullable<unknown>> implements Channel<T> { // constraint: can't create channels of nullable type
+class ChannelImpl<T extends ChannelValue> implements ChannelHandle<T> { // constraint: can't create channels of nullable type
   /** @internal */
   readonly _id: string
   private buffer: T[] = []
@@ -57,7 +63,7 @@ class ChannelImpl<T extends NonNullable<unknown>> implements Channel<T> { // con
   constructor(capacity: number) {
     this._id = `__ch_${++channelIdCounter}`
     this.capacity = capacity
-    channelRegistry.set(this._id, this as unknown as ChannelImpl<NonNullable<unknown>>)
+    channelRegistry.set(this._id, this as ChannelHandle<ChannelValue>)
   }
 
   send(value: T): Promise<void> {
@@ -170,7 +176,7 @@ class ChannelImpl<T extends NonNullable<unknown>> implements Channel<T> { // con
  *   }, { channels: { input, output } })
  * }
  */
-export function chan<T extends NonNullable<unknown>>(capacity: number = 0): Channel<T> {
+export function chan<T extends ChannelValue>(capacity: number = 0): Channel<T> {
   if (capacity < 0 || !Number.isInteger(capacity)) {
     throw new RangeError('Channel capacity must be a non-negative integer')
   }
@@ -178,8 +184,13 @@ export function chan<T extends NonNullable<unknown>>(capacity: number = 0): Chan
 }
 
 /** @internal */
-export function getChannelById(id: string): Channel<NonNullable<unknown>> | undefined {
+export function getChannelById(id: string): ChannelHandle<ChannelValue> | undefined {
   return channelRegistry.get(id)
+}
+
+/** @internal */
+export function getChannelId<T extends ChannelValue>(channel: Channel<T>): string {
+  return (channel as ChannelHandle<T>)._id
 }
 
 /** @internal */

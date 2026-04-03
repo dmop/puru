@@ -1,8 +1,34 @@
 import { WEB_BOOTSTRAP_CODE } from '../bootstrap.js'
 import type { ManagedWorker, WorkerAdapter } from './base.js'
+import type { WorkerMessage, WorkerResponse } from '../types.js'
 import { writeFileSync, unlinkSync, mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+
+interface BunWorkerMessageEvent {
+  data: WorkerResponse
+}
+
+interface BunWorkerErrorEvent {
+  message: string
+  error?: Error
+}
+
+interface BunWorkerCloseEvent {
+  code?: number
+}
+
+interface BunRuntimeWorker {
+  postMessage(data: WorkerMessage): void
+  terminate(): void
+  addEventListener(type: 'message', handler: (event: BunWorkerMessageEvent) => void): void
+  addEventListener(type: 'error', handler: (event: BunWorkerErrorEvent) => void): void
+  addEventListener(type: 'close', handler: (event: BunWorkerCloseEvent) => void): void
+  unref?(): void
+  ref?(): void
+}
+
+type BunWorkerConstructor = new (url: string | URL) => BunRuntimeWorker
 
 let workerIdCounter = 0
 let bootstrapFile: string | null = null
@@ -22,15 +48,19 @@ function getBootstrapFile(): string {
 }
 
 class BunManagedWorker implements ManagedWorker {
-  private worker: Worker
+  private worker: BunRuntimeWorker
   readonly id: number
 
   constructor() {
     this.id = ++workerIdCounter
-    this.worker = new Worker(getBootstrapFile())
+    const WorkerConstructor = (globalThis as { Worker?: BunWorkerConstructor }).Worker
+    if (!WorkerConstructor) {
+      throw new Error('Bun Worker constructor is not available in this runtime')
+    }
+    this.worker = new WorkerConstructor(getBootstrapFile())
   }
 
-  postMessage(data: unknown): void {
+  postMessage(data: WorkerMessage): void {
     this.worker.postMessage(data)
   }
 
@@ -40,37 +70,37 @@ class BunManagedWorker implements ManagedWorker {
     return Promise.resolve(0)
   }
 
-  on(event: 'message', handler: (data: unknown) => void): void
+  on(event: 'message', handler: (data: WorkerResponse) => void): void
   on(event: 'error', handler: (err: Error) => void): void
   on(event: 'exit', handler: (code: number) => void): void
-  on(event: string, handler: (...args: any[]) => void): void {
+  on(event: 'message' | 'error' | 'exit', handler: ((data: WorkerResponse) => void) | ((err: Error) => void) | ((code: number) => void)): void {
     if (event === 'message') {
-      this.worker.addEventListener('message', (e: MessageEvent) => {
-        handler(e.data)
+      this.worker.addEventListener('message', (e) => {
+        ;(handler as (data: WorkerResponse) => void)(e.data)
       })
     } else if (event === 'error') {
-      this.worker.addEventListener('error', (e: ErrorEvent) => {
-        handler(e.error ?? new Error(e.message))
+      this.worker.addEventListener('error', (e) => {
+        ;(handler as (err: Error) => void)(e.error ?? new Error(e.message))
       })
     } else if (event === 'exit') {
-      // Bun emits 'close' on worker termination
-      this.worker.addEventListener('close', (e: CloseEvent) => {
-        handler((e as any).code ?? 0)
+      // Bun emits 'close' on worker termination; the event carries a numeric exit code
+      this.worker.addEventListener('close', (e) => {
+        ;(handler as (code: number) => void)(e.code ?? 0)
       })
     }
   }
 
   unref(): void {
-    // Bun Workers support unref()
-    if ('unref' in this.worker && typeof this.worker.unref === 'function') {
-      ;(this.worker as any).unref()
+    // Bun Workers support unref() — not in standard Web Worker types
+    if ('unref' in this.worker && typeof (this.worker as { unref?: () => void }).unref === 'function') {
+      (this.worker as { unref(): void }).unref()
     }
   }
 
   ref(): void {
-    // Bun Workers support ref()
-    if ('ref' in this.worker && typeof this.worker.ref === 'function') {
-      ;(this.worker as any).ref()
+    // Bun Workers support ref() — not in standard Web Worker types
+    if ('ref' in this.worker && typeof (this.worker as { ref?: () => void }).ref === 'function') {
+      (this.worker as { ref(): void }).ref()
     }
   }
 }

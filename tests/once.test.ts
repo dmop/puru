@@ -45,9 +45,9 @@ describe('Once', () => {
   it('can be reset', async () => {
     let count = 0
     const once = new Once()
-    await once.do(() => count++)
+    await once.do(() => { count++ })
     once.reset()
-    await once.do(() => count++)
+    await once.do(() => { count++ })
     expect(count).toBe(2)
   })
 

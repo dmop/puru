@@ -48,7 +48,7 @@ describe('serializeFunction', () => {
   })
 
   it('throws on non-function input', () => {
-    expect(() => serializeFunction('not a fn' as unknown as Function)).toThrow(
+    expect(() => serializeFunction('not a fn' as never as Function)).toThrow(
       'Expected a function',
     )
   })

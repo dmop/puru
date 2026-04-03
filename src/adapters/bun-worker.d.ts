@@ -1,9 +1,10 @@
+import type { WorkerMessage } from '../types.js'
+
 // Minimal Web Worker types for the Bun adapter.
 // These are available at runtime in Bun but not in @types/node.
 
-declare class Worker {
-  constructor(url: string | URL)
-  postMessage(data: unknown, transfer?: Transferable[]): void
+interface BunWorkerInstance {
+  postMessage(data: WorkerMessage, transfer?: Transferable[]): void
   terminate(): void
   addEventListener(type: 'message', handler: (e: MessageEvent) => void): void
   addEventListener(type: 'error', handler: (e: ErrorEvent) => void): void
@@ -12,6 +13,12 @@ declare class Worker {
   unref?(): void
   ref?(): void
 }
+
+declare var Worker: {
+  new(url: string | URL): BunWorkerInstance
+}
+
+declare interface Worker extends BunWorkerInstance {}
 
 interface ErrorEvent extends Event {
   message: string

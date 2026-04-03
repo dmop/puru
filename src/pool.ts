@@ -1,5 +1,5 @@
 import type { ManagedWorker, WorkerAdapter } from './adapters/base.js'
-import type { PuruConfig, Task, WorkerMessage, WorkerResponse } from './types.js'
+import type { ChannelValue, PuruConfig, StructuredCloneValue, Task, TaskError, WorkerMessage, WorkerResponse } from './types.js'
 import { getConfig } from './configure.js'
 import { detectRuntime, detectCapability } from './runtime.js'
 import { NodeWorkerAdapter } from './adapters/node.js'
@@ -321,7 +321,7 @@ export class WorkerPool {
 
   private async handleChannelOp(
     worker: ManagedWorker,
-    msg: { channelId: string; op: 'send' | 'recv' | 'close'; correlationId: number; value?: unknown },
+    msg: Extract<WorkerResponse, { type: 'channel-op' }>,
   ): Promise<void> {
     const channel = getChannelById(msg.channelId)
 
@@ -336,7 +336,7 @@ export class WorkerPool {
 
     try {
       if (msg.op === 'send') {
-        await channel.send(msg.value as NonNullable<unknown>)
+        await channel.send(msg.value as ChannelValue)
         worker.postMessage({
           type: 'channel-result',
           correlationId: msg.correlationId,
@@ -366,7 +366,7 @@ export class WorkerPool {
 
   // --- Task resolution ---
 
-  private resolveTask(taskId: string, value: unknown): void {
+  private resolveTask(taskId: string, value: StructuredCloneValue): void {
     const task = this.taskMap.get(taskId)
     if (task) {
       this.taskMap.delete(taskId)
@@ -375,12 +375,22 @@ export class WorkerPool {
     }
   }
 
-  private rejectTask(taskId: string, reason: unknown): void {
+  private rejectTask(taskId: string, reason: TaskError): void {
     const task = this.taskMap.get(taskId)
     if (task) {
       this.taskMap.delete(taskId)
       this.totalFailed++
       task.reject(reason)
+    }
+  }
+
+  private rejectExclusiveTaskForWorker(worker: ManagedWorker, reason: TaskError): void {
+    for (const [taskId, assignedWorker] of this.exclusiveWorkers) {
+      if (assignedWorker === worker) {
+        this.exclusiveWorkers.delete(taskId)
+        this.rejectTask(taskId, reason)
+        break
+      }
     }
   }
 
@@ -522,8 +532,7 @@ export class WorkerPool {
       }
     }
 
-    worker.on('message', (msg: unknown) => {
-      const response = msg as WorkerResponse
+    worker.on('message', (response) => {
       if (response.type === 'ready') {
         onReady()
         return
@@ -532,13 +541,7 @@ export class WorkerPool {
     })
 
     worker.on('error', (err: Error) => {
-      // Clean up exclusive task on this worker
-      for (const [taskId, w] of this.exclusiveWorkers) {
-        if (w === worker) {
-          this.exclusiveWorkers.delete(taskId)
-          break
-        }
-      }
+      this.rejectExclusiveTaskForWorker(worker, err)
       // Clean up concurrent tasks on this worker
       const taskSet = this.sharedWorkers.get(worker)
       if (taskSet) {
@@ -563,13 +566,7 @@ export class WorkerPool {
         this.idleWorkers.splice(idleIdx, 1)
       }
 
-      // Clean up exclusive task
-      for (const [taskId, w] of this.exclusiveWorkers) {
-        if (w === worker) {
-          this.exclusiveWorkers.delete(taskId)
-          break
-        }
-      }
+      this.rejectExclusiveTaskForWorker(worker, new Error('Worker exited unexpectedly'))
 
       // Clean up concurrent tasks
       const taskSet = this.sharedWorkers.get(worker)

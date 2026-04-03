@@ -1,6 +1,8 @@
-import { spawn } from './spawn.js'
-import type { SpawnResult } from './types.js'
+import { spawn as spawnTask } from './spawn.js'
+import type { ChannelValue, SpawnResult, StructuredCloneValue, TaskError } from './types.js'
 import type { Channel } from './channel.js'
+
+type SpawnChannels = Record<string, Channel<ChannelValue>>
 
 /**
  * Like `WaitGroup`, but cancels all remaining tasks on the first error.
@@ -31,24 +33,24 @@ import type { Channel } from './channel.js'
  *   // use task() with register() and check a channel or AbortSignal instead
  * })
  */
-export class ErrGroup {
-  private tasks: SpawnResult<unknown>[] = []
+export class ErrGroup<T extends StructuredCloneValue = StructuredCloneValue> {
+  private tasks: SpawnResult<T>[] = []
   private controller = new AbortController()
-  private firstError: unknown = undefined
+  private firstError: TaskError | null = null
   private hasError = false
 
   get signal(): AbortSignal {
     return this.controller.signal
   }
 
-  spawn(
-    fn: (() => unknown) | ((channels: Record<string, Channel<unknown>>) => unknown),
-    opts?: { concurrent?: boolean; channels?: Record<string, Channel<unknown>> },
+  spawn<TChannels extends SpawnChannels = Record<never, never>>(
+    fn: (() => T | Promise<T>) | ((channels: TChannels) => T | Promise<T>),
+    opts?: { concurrent?: boolean; channels?: TChannels },
   ): void {
     if (this.controller.signal.aborted) {
       throw new Error('ErrGroup has been cancelled')
     }
-    const handle = spawn(fn, opts)
+    const handle = spawnTask<T, TChannels>(fn, opts)
 
     // Watch for errors and cancel all tasks on first failure
     handle.result.catch((err) => {
@@ -62,10 +64,10 @@ export class ErrGroup {
     this.tasks.push(handle)
   }
 
-  async wait(): Promise<unknown[]> {
+  async wait(): Promise<T[]> {
     const settled = await Promise.allSettled(this.tasks.map((t) => t.result))
 
-    if (this.hasError) {
+    if (this.hasError && this.firstError) {
       throw this.firstError
     }
 

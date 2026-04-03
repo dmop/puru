@@ -50,7 +50,7 @@ describe('spawn', () => {
   })
 
   it('runs multiple spawns concurrently', async () => {
-    const handles = Array.from({ length: 4 }, (_, i) =>
+    const handles = Array.from({ length: 4 }, () =>
       spawn(() => {
         let sum = 0
         for (let j = 0; j < 100_000; j++) sum += j
@@ -75,9 +75,26 @@ describe('spawn', () => {
     const fast = spawn(() => 99)
     fast.cancel()
 
-    await expect(fast.result).rejects.toThrow()
+    await expect(fast.result).rejects.toThrow('Task was cancelled')
     // slow should still resolve
     await slow.result
+  })
+
+  it('cancelling a running CPU task rejects the caller immediately but does not preempt computation', async () => {
+    resetConfig()
+    configure({ maxThreads: 1, idleTimeout: 1000 })
+
+    const started = spawn(() => {
+      const start = Date.now()
+      while (Date.now() - start < 100) {
+        // busy loop
+      }
+      return 'done'
+    })
+
+    started.cancel()
+
+    await expect(started.result).rejects.toThrow('Task was cancelled')
   })
 
   it('returns structured-cloneable data', async () => {

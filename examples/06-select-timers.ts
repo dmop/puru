@@ -47,7 +47,7 @@ configure({ adapter: 'auto' })
   // Race: receive OR 100ms timeout
   let received: string | null = null
   await select([
-    [ch.recv(), (value) => { received = value }],
+    [ch.recv(), (value) => { received = typeof value === 'string' || value === null ? value : String(value) }],
     [after(100), () => { received = 'timed out' }],
   ])
 
@@ -55,7 +55,7 @@ configure({ adapter: 'auto' })
 
   // Now wait for the value to arrive and race again with a longer timeout
   await select([
-    [ch.recv(), (value) => { received = value }],
+    [ch.recv(), (value) => { received = typeof value === 'string' || value === null ? value : String(value) }],
     [after(300), () => { received = 'timed out again' }],
   ])
 
@@ -123,7 +123,7 @@ configure({ adapter: 'auto' })
   while (checked < 10) {
     let gotValue = false
     await select(
-      [[ch.recv(), (v) => { received = v as number; gotValue = true }]],
+      [[ch.recv(), (v) => { received = typeof v === 'number' ? v : 0; gotValue = true }]],
       { default: () => {} }, // non-blocking: returns immediately if nothing ready
     )
 

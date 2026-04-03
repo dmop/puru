@@ -22,13 +22,22 @@ import { ErrGroup, WaitGroup, configure } from '../dist/index.js'
 
 configure({ adapter: 'auto' })
 
+type UserProfile = { id: number; name: string; email: string }
+type UserOrders = Array<{ id: number; total: number }>
+type UserSubscription = { plan: string; seatsUsed: number; seatsTotal: number }
+type TaskOutcome = string
+
+function getErrorMessage(err: Error | DOMException): string {
+  return err.message
+}
+
 // ─── All-or-nothing data fetch ────────────────────────────────────────────────
 //
 // Fetch a user's full profile from three services.
 // If any service fails, there's no point continuing — cancel the rest.
 
 async function loadUserProfile(userId: number) {
-  const eg = new ErrGroup()
+  const eg = new ErrGroup<UserProfile | UserOrders | UserSubscription>()
 
   eg.spawn(async () => {
     await new Promise<void>((r) => setTimeout(r, 30))
@@ -56,8 +65,12 @@ async function loadUserProfile(userId: number) {
   try {
     const profile = await loadUserProfile(42)
     console.log('  Profile loaded:', JSON.stringify(profile, null, 2).replace(/\n/g, '\n  '))
-  } catch (err: any) {
-    console.error('  Failed:', err.message)
+  } catch (err) {
+    if (err instanceof Error || err instanceof DOMException) {
+      console.error('  Failed:', getErrorMessage(err))
+    } else {
+      throw err
+    }
   }
 }
 
@@ -68,9 +81,13 @@ async function loadUserProfile(userId: number) {
     const profile = await loadUserProfile(-1) // triggers error
     console.log('  (should not reach here)')
     void profile
-  } catch (err: any) {
-    console.log('  Caught first error:', err.message)
-    console.log('  All remaining tasks were cancelled')
+  } catch (err) {
+    if (err instanceof Error || err instanceof DOMException) {
+      console.log('  Caught first error:', getErrorMessage(err))
+      console.log('  All remaining tasks were cancelled')
+    } else {
+      throw err
+    }
   }
 }
 
@@ -105,15 +122,19 @@ async function loadUserProfile(userId: number) {
 
   // ErrGroup — tasks 1 and 3 are cancelled when task 2 fails
   {
-    const eg = new ErrGroup()
-    eg.spawn(makeTask(1, null) as () => unknown)
-    eg.spawn(makeTask(2, 2) as () => unknown) // this one fails
-    eg.spawn(makeTask(3, null) as () => unknown)
+    const eg = new ErrGroup<TaskOutcome>()
+    eg.spawn(makeTask(1, null))
+    eg.spawn(makeTask(2, 2)) // this one fails
+    eg.spawn(makeTask(3, null))
 
     try {
       await eg.wait()
-    } catch (err: any) {
-      console.log('  ErrGroup threw:', err.message, '(other tasks cancelled)')
+    } catch (err) {
+      if (err instanceof Error || err instanceof DOMException) {
+        console.log('  ErrGroup threw:', getErrorMessage(err), '(other tasks cancelled)')
+      } else {
+        throw err
+      }
     }
   }
 }

@@ -1,6 +1,8 @@
-import { spawn } from './spawn.js'
-import type { SpawnResult } from './types.js'
+import { spawn as spawnTask } from './spawn.js'
+import type { ChannelValue, SpawnResult, StructuredCloneValue } from './types.js'
 import type { Channel } from './channel.js'
+
+type SpawnChannels = Record<string, Channel<ChannelValue>>
 
 /**
  * Structured concurrency: spawn multiple tasks and wait for all to complete.
@@ -32,8 +34,8 @@ import type { Channel } from './channel.js'
  *   else console.error(r.reason)
  * }
  */
-export class WaitGroup {
-  private tasks: SpawnResult<unknown>[] = []
+export class WaitGroup<T extends StructuredCloneValue = StructuredCloneValue> {
+  private tasks: SpawnResult<T>[] = []
   private controller = new AbortController()
 
   /**
@@ -49,14 +51,14 @@ export class WaitGroup {
    *
    * @throws If the group has already been cancelled.
    */
-  spawn(
-    fn: (() => unknown) | ((channels: Record<string, Channel<unknown>>) => unknown),
-    opts?: { concurrent?: boolean; channels?: Record<string, Channel<unknown>> },
+  spawn<TChannels extends SpawnChannels = Record<never, never>>(
+    fn: (() => T | Promise<T>) | ((channels: TChannels) => T | Promise<T>),
+    opts?: { concurrent?: boolean; channels?: TChannels },
   ): void {
     if (this.controller.signal.aborted) {
       throw new Error('WaitGroup has been cancelled')
     }
-    const handle = spawn(fn, opts)
+    const handle = spawnTask<T, TChannels>(fn, opts)
     this.tasks.push(handle)
   }
 
@@ -64,7 +66,7 @@ export class WaitGroup {
    * Waits for all tasks to complete successfully.
    * Rejects as soon as any task throws.
    */
-  async wait(): Promise<unknown[]> {
+  async wait(): Promise<T[]> {
     return Promise.all(this.tasks.map((t) => t.result))
   }
 
@@ -72,7 +74,7 @@ export class WaitGroup {
    * Waits for all tasks to settle (fulfilled or rejected) and returns each outcome.
    * Never rejects — inspect each `PromiseSettledResult` to handle failures individually.
    */
-  async waitSettled(): Promise<PromiseSettledResult<unknown>[]> {
+  async waitSettled(): Promise<PromiseSettledResult<T>[]> {
     return Promise.allSettled(this.tasks.map((t) => t.result))
   }
 

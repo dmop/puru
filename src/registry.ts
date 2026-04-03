@@ -1,6 +1,6 @@
 import { getPool } from './pool.js'
 import { serializeFunction } from './serialize.js'
-import type { Task } from './types.js'
+import type { JsonValue, StructuredCloneValue, Task, TaskError } from './types.js'
 
 let taskCounter = 0
 
@@ -25,7 +25,7 @@ let taskCounter = 0
  * const result = await resizeImage('photo.jpg', 800, 600)
  * const [a, b] = await Promise.all([resizeImage('a.jpg', 400, 300), resizeImage('b.jpg', 800, 600)])
  */
-export function task<TArgs extends unknown[], TReturn>(
+export function task<TArgs extends JsonValue[], TReturn extends StructuredCloneValue>(
   fn: (...args: TArgs) => TReturn | Promise<TReturn>,
 ): (...args: TArgs) => Promise<TReturn> {
   return (...args: TArgs): Promise<TReturn> => {
@@ -46,7 +46,7 @@ export function task<TArgs extends unknown[], TReturn>(
     const spawnStack = new Error().stack
 
     let resolveFn!: (value: TReturn) => void
-    let rejectFn!: (reason: unknown) => void
+    let rejectFn!: (reason: TaskError) => void
 
     const result = new Promise<TReturn>((resolve, reject) => {
       resolveFn = resolve

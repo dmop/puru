@@ -1,0 +1,11 @@
+{
+  "entryPoints": ["src/index.ts"],
+  "out": "docs/api",
+  "plugin": [],
+  "exclude": ["**/node_modules/**", "src/adapters/**", "src/bootstrap.ts", "src/serialize.ts"],
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "name": "puru",
+  "readme": "README.md",
+  "githubPages": false
+}

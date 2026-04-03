@@ -13,7 +13,7 @@
 - `WaitGroup` — structured concurrency with `spawn()`, `wait()`, `waitSettled()`, and `cancel()`
 - `select(cases)` — wait for the first of multiple promises (Go-style select)
 - `after(ms)` — promise-based timer, useful with `select` for timeouts
-- `register(name, fn)` / `run(name, ...args)` — named task registry
+- `task(fn)` — reusable worker-thread functions with explicit arguments
 - `configure(opts?)` — global pool configuration (maxThreads, concurrency, idleTimeout)
 - `stats()` / `resize(n)` — pool inspection and dynamic resizing
 - Task priority scheduling (high, normal, low)

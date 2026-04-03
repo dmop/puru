@@ -80,66 +80,42 @@ const { result } = spawn(() => {
 console.log(await result)
 ```
 
-### Multiple tasks in parallel (WaitGroup)
+### Multiple tasks in parallel (`task()`)
 
 ```typescript
-import { WaitGroup } from '@dmop/puru'
+import { task } from '@dmop/puru'
 
 const items = [1, 2, 3, 4]
-const wg = new WaitGroup()
-
-for (const item of items) {
-  const value = item // capture as a literal for each iteration
-  wg.spawn(() => {
-    // `value` is NOT captured from closure — this won't work
-    // you must inline or use register()/run()
-  })
-}
-```
-
-To pass per-task data, use `register`/`run`:
-
-```typescript
-import { register, run, WaitGroup } from '@dmop/puru'
-
-// Register once at startup
-register('processItem', (item: number) => item * 2)
-
-const items = [1, 2, 3, 4]
-const wg = new WaitGroup()
-for (const item of items) {
-  wg.spawn(() => run('processItem', item))
-}
-const results = await wg.wait()
+const processItem = task((item: number) => item * 2)
+const results = await Promise.all(items.map((item) => processItem(item)))
 ```
 
 ### Concurrent I/O (concurrent mode)
 
 ```typescript
-import { WaitGroup } from '@dmop/puru'
+import { spawn } from '@dmop/puru'
 
-const urls = ['https://...', 'https://...']
-const wg = new WaitGroup()
+const user = spawn(
+  () => fetch('https://api.example.com/users/1').then((r) => r.json()),
+  { concurrent: true },
+)
 
-for (const url of urls) {
-  wg.spawn(() => run('fetchUrl', url), { concurrent: true })
-}
+const orders = spawn(
+  () => fetch('https://api.example.com/users/1/orders').then((r) => r.json()),
+  { concurrent: true },
+)
 
-register('fetchUrl', (url: string) => fetch(url).then(r => r.json()))
-const results = await wg.wait()
+const results = await Promise.all([user.result, orders.result])
 ```
 
 ### Cancel on first error (ErrGroup)
 
 ```typescript
-import { ErrGroup, register } from '@dmop/puru'
-
-register('fetchUser', (id: number) => fetch(`/api/users/${id}`).then(r => r.json()))
-register('fetchOrders', (id: number) => fetch(`/api/orders/${id}`).then(r => r.json()))
+import { ErrGroup } from '@dmop/puru'
 
 const eg = new ErrGroup()
-eg.spawn(() => run('fetchUser', 1))
-eg.spawn(() => run('fetchOrders', 1))
+eg.spawn(() => fetch('https://api.example.com/users/1').then((r) => r.json()), { concurrent: true })
+eg.spawn(() => fetch('https://api.example.com/users/1/orders').then((r) => r.json()), { concurrent: true })
 
 const [user, orders] = await eg.wait() // throws on first error, cancels the rest
 ```

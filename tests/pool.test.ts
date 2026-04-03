@@ -1,21 +1,22 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { WorkerPool, resetPool } from '../src/pool.js'
 import { NodeWorkerAdapter } from '../src/adapters/node.js'
+import type { ManagedWorker, WorkerAdapter } from '../src/adapters/base.js'
 import { resetConfig } from '../src/configure.js'
-import type { Task } from '../src/types.js'
+import type { StructuredCloneValue, Task, TaskError } from '../src/types.js'
 
 function createTask(
   id: string,
   fnStr: string,
   priority: 'low' | 'normal' | 'high' = 'normal',
-): { task: Task; promise: Promise<unknown> } {
-  let resolve!: (value: unknown) => void
-  let reject!: (reason: unknown) => void
-  const promise = new Promise((res, rej) => {
+): { task: Task; promise: Promise<StructuredCloneValue> } {
+  let resolve!: (value: StructuredCloneValue) => void
+  let reject!: (reason: TaskError) => void
+  const promise = new Promise<StructuredCloneValue>((res, rej) => {
     resolve = res
     reject = rej
   })
-  const task: Task = { id, fnStr, resolve, reject, priority }
+  const task: Task = { id, fnStr, resolve, reject, priority, concurrent: false }
   return { task, promise }
 }
 
@@ -24,7 +25,7 @@ describe('WorkerPool', () => {
 
   beforeEach(() => {
     pool = new WorkerPool(
-      { maxThreads: 2, strategy: 'fifo', idleTimeout: 500 },
+      { maxThreads: 2, strategy: 'fifo', idleTimeout: 500, adapter: 'node', concurrency: 64 },
       new NodeWorkerAdapter(),
     )
   })
@@ -83,7 +84,7 @@ describe('WorkerPool', () => {
 
   it('cancels a queued task', async () => {
     const pool2 = new WorkerPool(
-      { maxThreads: 1, strategy: 'fifo', idleTimeout: 500 },
+      { maxThreads: 1, strategy: 'fifo', idleTimeout: 500, adapter: 'node', concurrency: 64 },
       new NodeWorkerAdapter(),
     )
 
@@ -97,14 +98,14 @@ describe('WorkerPool', () => {
     pool2.submit(t2.task)
     pool2.cancelTask('2')
 
-    await expect(t2.promise).rejects.toThrow()
+    await expect(t2.promise).rejects.toThrow('Task was cancelled')
     await t1.promise // should still work
     await pool2.drain()
   })
 
   it('dequeues high priority tasks before low', async () => {
     const pool1 = new WorkerPool(
-      { maxThreads: 1, strategy: 'fifo', idleTimeout: 500 },
+      { maxThreads: 1, strategy: 'fifo', idleTimeout: 500, adapter: 'node', concurrency: 64 },
       new NodeWorkerAdapter(),
     )
 
@@ -148,4 +149,89 @@ describe('WorkerPool', () => {
     pool.submit(t2.task)
     await expect(t2.promise).rejects.toThrow('Pool is shutting down')
   })
+
+  it('rejects an exclusive task if the worker emits an error', async () => {
+    const fakeWorker = createFakeWorker()
+    const poolWithFakeWorker = new WorkerPool(
+      { maxThreads: 1, strategy: 'fifo', idleTimeout: 500, adapter: 'node', concurrency: 64 },
+      createFakeAdapter(fakeWorker),
+    )
+
+    const t1 = createTask('1', '() => 42')
+    poolWithFakeWorker.submit(t1.task)
+    fakeWorker.emitMessage({ type: 'ready' })
+    fakeWorker.emitError(new Error('worker blew up'))
+
+    await expect(t1.promise).rejects.toThrow('worker blew up')
+    await poolWithFakeWorker.drain()
+  })
+
+  it('rejects an exclusive task if the worker exits unexpectedly', async () => {
+    const fakeWorker = createFakeWorker()
+    const poolWithFakeWorker = new WorkerPool(
+      { maxThreads: 1, strategy: 'fifo', idleTimeout: 500, adapter: 'node', concurrency: 64 },
+      createFakeAdapter(fakeWorker),
+    )
+
+    const t1 = createTask('1', '() => 42')
+    poolWithFakeWorker.submit(t1.task)
+    fakeWorker.emitMessage({ type: 'ready' })
+    fakeWorker.emitExit(1)
+
+    await expect(t1.promise).rejects.toThrow('Worker exited unexpectedly')
+    await poolWithFakeWorker.drain()
+  })
 })
+
+function createFakeAdapter(worker: FakeManagedWorker): WorkerAdapter {
+  return {
+    createWorker() {
+      return worker
+    },
+  }
+}
+
+type MessageHandler = (data: import('../src/types.js').WorkerResponse) => void
+type ErrorHandler = (err: Error) => void
+type ExitHandler = (code: number) => void
+
+class FakeManagedWorker implements ManagedWorker {
+  readonly id = 999
+  private messageHandlers: MessageHandler[] = []
+  private errorHandlers: ErrorHandler[] = []
+  private exitHandlers: ExitHandler[] = []
+
+  postMessage(): void {}
+
+  terminate(): Promise<number> {
+    return Promise.resolve(0)
+  }
+
+  on(event: 'message', handler: MessageHandler): void
+  on(event: 'error', handler: ErrorHandler): void
+  on(event: 'exit', handler: ExitHandler): void
+  on(event: 'message' | 'error' | 'exit', handler: MessageHandler | ErrorHandler | ExitHandler): void {
+    if (event === 'message') this.messageHandlers.push(handler as MessageHandler)
+    else if (event === 'error') this.errorHandlers.push(handler as ErrorHandler)
+    else this.exitHandlers.push(handler as ExitHandler)
+  }
+
+  unref(): void {}
+  ref(): void {}
+
+  emitMessage(message: import('../src/types.js').WorkerResponse): void {
+    for (const handler of this.messageHandlers) handler(message)
+  }
+
+  emitError(error: Error): void {
+    for (const handler of this.errorHandlers) handler(error)
+  }
+
+  emitExit(code: number): void {
+    for (const handler of this.exitHandlers) handler(code)
+  }
+}
+
+function createFakeWorker(): FakeManagedWorker {
+  return new FakeManagedWorker()
+}

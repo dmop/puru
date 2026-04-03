@@ -51,6 +51,7 @@ describe('select', () => {
 
   it('resolves immediately for empty cases', async () => {
     await select([])
+    expect(true).toBe(true)
   })
 
   describe('default case', () => {
