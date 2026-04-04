@@ -1,6 +1,6 @@
 # puru — Guide for AI Assistants
 
-puru is a thread pool library for JavaScript with Go-style concurrency primitives (channels, WaitGroup, select). It runs functions off the main thread with no worker files and no boilerplate.
+puru is a thread pool library for JavaScript with Go-style concurrency primitives (channels, WaitGroup, ErrGroup, select, context, Mutex, RWMutex, Cond, Timer). It runs functions off the main thread with no worker files and no boilerplate.
 
 Full API reference: https://raw.githubusercontent.com/dmop/puru/main/llms-full.txt
 
@@ -118,6 +118,141 @@ eg.spawn(() => fetch('https://api.example.com/users/1').then((r) => r.json()), {
 eg.spawn(() => fetch('https://api.example.com/users/1/orders').then((r) => r.json()), { concurrent: true })
 
 const [user, orders] = await eg.wait() // throws on first error, cancels the rest
+```
+
+### ErrGroup with concurrency limit
+
+```typescript
+import { ErrGroup } from '@dmop/puru'
+
+const eg = new ErrGroup()
+eg.setLimit(4) // max 4 tasks in flight at once
+
+for (const url of urls) {
+  eg.spawn(() => fetch(url).then(r => r.json()), { concurrent: true })
+}
+
+const results = await eg.wait()
+```
+
+### Context-integrated spawn (auto-cancel)
+
+```typescript
+import { spawn, background, withTimeout } from '@dmop/puru'
+
+// Task auto-cancels when context expires — no manual wiring needed
+const [ctx, cancel] = withTimeout(background(), 5000)
+const { result } = spawn(() => heavyWork(), { ctx })
+
+try {
+  console.log(await result)
+} finally {
+  cancel()
+}
+```
+
+### Context with WaitGroup / ErrGroup
+
+```typescript
+import { background, withTimeout, WaitGroup } from '@dmop/puru'
+
+const [ctx, cancel] = withTimeout(background(), 5000)
+
+// Pass context to WaitGroup — all tasks auto-cancel when ctx expires
+const wg = new WaitGroup(ctx)
+wg.spawn(() => { /* CPU work */ return 42 })
+wg.spawn(() => fetch('https://api.example.com/data').then(r => r.json()), { concurrent: true })
+
+try {
+  const results = await wg.wait()
+} catch {
+  console.log('timed out or cancelled')
+} finally {
+  cancel()
+}
+```
+
+### RWMutex (read-write lock)
+
+```typescript
+import { RWMutex } from '@dmop/puru'
+
+const rw = new RWMutex()
+
+// Many readers can run concurrently
+const data = await rw.withRLock(() => cache.get('config'))
+
+// Writers get exclusive access
+await rw.withLock(() => cache.set('config', newValue))
+```
+
+### Timer (resettable one-shot)
+
+```typescript
+import { Timer, select } from '@dmop/puru'
+
+const t = new Timer(5000)
+
+// Use with select for cancellable timeouts
+await select([
+  [ch.recv(), (v) => { t.stop(); handle(v) }],
+  [t.channel, () => console.log('timed out')],
+])
+
+// Reset for debounce patterns
+t.reset(300)
+```
+
+### Cond (condition variable)
+
+```typescript
+import { Mutex, Cond } from '@dmop/puru'
+
+const mu = new Mutex()
+const cond = new Cond(mu)
+let ready = false
+
+// Waiter
+await mu.lock()
+while (!ready) await cond.wait()
+mu.unlock()
+
+// Signaler
+await mu.lock()
+ready = true
+cond.broadcast() // wake all waiters
+mu.unlock()
+```
+
+### Directional channels
+
+```typescript
+import { chan } from '@dmop/puru'
+import type { SendOnly, RecvOnly } from '@dmop/puru'
+
+const ch = chan<number>(10)
+
+function producer(out: SendOnly<number>) {
+  await out.send(42)
+  out.close()
+}
+
+function consumer(inp: RecvOnly<number>) {
+  for await (const v of inp) console.log(v)
+}
+
+producer(ch.sendOnly())
+consumer(ch.recvOnly())
+```
+
+### Channel inspection
+
+```typescript
+const ch = chan<number>(100)
+await ch.send(1)
+await ch.send(2)
+console.log(ch.len) // 2 (buffered values)
+console.log(ch.cap) // 100 (buffer capacity)
 ```
 
 ### Cross-thread channels (fan-out)

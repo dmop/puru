@@ -31,6 +31,30 @@ export interface Channel<T extends ChannelValue> {
   /** Resolves with the next value, or `null` if the channel is closed. */
   recv(): Promise<T | null>
   close(): void
+  /** Number of values currently buffered. Like Go's `len(ch)`. */
+  readonly len: number
+  /** Buffer capacity. Like Go's `cap(ch)`. */
+  readonly cap: number
+  /** Returns a send-only view of this channel. Like Go's `chan<- T`. */
+  sendOnly(): SendOnly<T>
+  /** Returns a receive-only view of this channel. Like Go's `<-chan T`. */
+  recvOnly(): RecvOnly<T>
+  [Symbol.asyncIterator](): AsyncIterator<T>
+}
+
+/** Send-only view of a channel. Like Go's `chan<- T`. */
+export interface SendOnly<T extends ChannelValue> {
+  send(value: T): Promise<void>
+  close(): void
+  readonly len: number
+  readonly cap: number
+}
+
+/** Receive-only view of a channel. Like Go's `<-chan T`. */
+export interface RecvOnly<T extends ChannelValue> {
+  recv(): Promise<T | null>
+  readonly len: number
+  readonly cap: number
   [Symbol.asyncIterator](): AsyncIterator<T>
 }
 
@@ -64,6 +88,14 @@ class ChannelImpl<T extends ChannelValue> implements ChannelHandle<T> { // const
     this._id = `__ch_${++channelIdCounter}`
     this.capacity = capacity
     channelRegistry.set(this._id, this as ChannelHandle<ChannelValue>)
+  }
+
+  get len(): number {
+    return this.buffer.length
+  }
+
+  get cap(): number {
+    return this.capacity
   }
 
   send(value: T): Promise<void> {
@@ -137,6 +169,34 @@ class ChannelImpl<T extends ChannelValue> implements ChannelHandle<T> { // const
       sender.reject(new Error('send on closed channel'))
     }
     this.sendQueue = []
+  }
+
+  sendOnly(): SendOnly<T> {
+    const send = (value: T) => this.send(value)
+    const close = () => this.close()
+    const getLen = () => this.len
+    const getCap = () => this.cap
+    return {
+      send,
+      close,
+      get len() { return getLen() },
+      get cap() { return getCap() },
+    }
+  }
+
+  recvOnly(): RecvOnly<T> {
+    const recv = () => this.recv()
+    const getLen = () => this.len
+    const getCap = () => this.cap
+    const getIter = () => this[Symbol.asyncIterator]()
+    return {
+      recv,
+      get len() { return getLen() },
+      get cap() { return getCap() },
+      [Symbol.asyncIterator]() {
+        return getIter()
+      },
+    }
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<T> {

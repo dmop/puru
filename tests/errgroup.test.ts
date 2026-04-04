@@ -62,4 +62,47 @@ describe('ErrGroup', () => {
     eg.cancel()
     expect(() => eg.spawn(() => 1)).toThrow('cancelled')
   })
+
+  describe('setLimit', () => {
+    it('throws if called after spawn', () => {
+      const eg = new ErrGroup()
+      eg.spawn(() => 1)
+      expect(() => eg.setLimit(2)).toThrow('SetLimit must be called before any spawn()')
+    })
+
+    it('throws on negative limit', () => {
+      const eg = new ErrGroup()
+      expect(() => eg.setLimit(-1)).toThrow(RangeError)
+    })
+
+    it('limits concurrent tasks', async () => {
+      const eg = new ErrGroup<number>()
+      eg.setLimit(2)
+
+      // Spawn 4 tasks — only 2 should run at a time
+      for (let i = 0; i < 4; i++) {
+        eg.spawn(() => {
+          let s = 0
+          for (let j = 0; j < 100_000; j++) s += j
+          return s
+        })
+      }
+
+      const results = await eg.wait()
+      expect(results).toHaveLength(4)
+      expect(results.every((r) => r === 4999950000)).toBe(true)
+    })
+
+    it('still fails fast on error with limit', async () => {
+      const eg = new ErrGroup()
+      eg.setLimit(1)
+
+      eg.spawn(() => {
+        throw new Error('limited boom')
+      })
+      eg.spawn(() => 42)
+
+      await expect(eg.wait()).rejects.toThrow('limited boom')
+    })
+  })
 })

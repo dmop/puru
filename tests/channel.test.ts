@@ -153,6 +153,92 @@ describe('chan', () => {
     })
   })
 
+  describe('len and cap', () => {
+    it('cap returns the buffer capacity', () => {
+      expect(chan(0).cap).toBe(0)
+      expect(chan(5).cap).toBe(5)
+      expect(chan(100).cap).toBe(100)
+    })
+
+    it('len returns the current buffer length', async () => {
+      const ch = chan<number>(3)
+      expect(ch.len).toBe(0)
+      await ch.send(1)
+      expect(ch.len).toBe(1)
+      await ch.send(2)
+      expect(ch.len).toBe(2)
+      await ch.recv()
+      expect(ch.len).toBe(1)
+      await ch.recv()
+      expect(ch.len).toBe(0)
+    })
+
+    it('len is 0 for unbuffered channels', async () => {
+      const ch = chan<number>()
+      expect(ch.len).toBe(0)
+      expect(ch.cap).toBe(0)
+    })
+  })
+
+  describe('directional channels', () => {
+    it('sendOnly() only exposes send and close', async () => {
+      const ch = chan<number>(3)
+      const so = ch.sendOnly()
+      await so.send(1)
+      await so.send(2)
+      so.close()
+
+      // Verify values were sent
+      expect(await ch.recv()).toBe(1)
+      expect(await ch.recv()).toBe(2)
+      expect(await ch.recv()).toBeNull()
+
+      // sendOnly should not have recv
+      expect('recv' in so).toBe(false)
+    })
+
+    it('recvOnly() only exposes recv and iteration', async () => {
+      const ch = chan<number>(3)
+      await ch.send(10)
+      await ch.send(20)
+      ch.close()
+
+      const ro = ch.recvOnly()
+      expect(await ro.recv()).toBe(10)
+      expect(await ro.recv()).toBe(20)
+      expect(await ro.recv()).toBeNull()
+
+      // recvOnly should not have send or close
+      expect('send' in ro).toBe(false)
+      expect('close' in ro).toBe(false)
+    })
+
+    it('recvOnly() supports async iteration', async () => {
+      const ch = chan<number>(3)
+      await ch.send(1)
+      await ch.send(2)
+      ch.close()
+
+      const values: number[] = []
+      for await (const v of ch.recvOnly()) {
+        values.push(v)
+      }
+      expect(values).toEqual([1, 2])
+    })
+
+    it('directional views expose len and cap', async () => {
+      const ch = chan<number>(5)
+      await ch.send(1)
+
+      const so = ch.sendOnly()
+      const ro = ch.recvOnly()
+      expect(so.len).toBe(1)
+      expect(so.cap).toBe(5)
+      expect(ro.len).toBe(1)
+      expect(ro.cap).toBe(5)
+    })
+  })
+
   describe('async iteration', () => {
     it('iterates over all values until close', async () => {
       const ch = chan<number>(5)

@@ -1,8 +1,22 @@
 # Changelog
 
-## [0.1.0] - 2026-04-03
+## Unreleased
 
 ### Added
+
+- `spawn()` now accepts `{ ctx }` option — tasks auto-cancel when the context is cancelled
+- `WaitGroup` and `ErrGroup` constructors accept an optional `Context` for automatic cancellation
+- `ErrGroup.setLimit(n)` — limit the maximum number of concurrent tasks (Go's `errgroup.SetLimit()`)
+- `RWMutex` — read-write mutex allowing concurrent readers with exclusive writers (Go's `sync.RWMutex`)
+- `Timer` — resettable one-shot timer with `stop()` and `reset()` (Go's `time.Timer`)
+- `Cond` — condition variable with `wait()`, `signal()`, and `broadcast()` (Go's `sync.Cond`)
+- `Channel.len` / `Channel.cap` — inspect buffer state (Go's `len(ch)` / `cap(ch)`)
+- `Channel.sendOnly()` / `Channel.recvOnly()` — directional channel views for type safety (Go's `chan<- T` / `<-chan T`)
+- `select()` now supports send cases alongside recv cases
+
+## [0.1.0] - 2026-04-03
+
+### Initial release
 
 - `spawn(fn, opts?)` — run functions in worker threads with automatic pool management
 - Thread pool with two dispatch modes:

@@ -1,6 +1,7 @@
 import { spawn as spawnTask } from './spawn.js'
 import type { ChannelValue, SpawnResult, StructuredCloneValue } from './types.js'
 import type { Channel } from './channel.js'
+import type { Context } from './context.js'
 
 type SpawnChannels = Record<string, Channel<ChannelValue>>
 
@@ -37,6 +38,18 @@ type SpawnChannels = Record<string, Channel<ChannelValue>>
 export class WaitGroup<T extends StructuredCloneValue = StructuredCloneValue> {
   private tasks: SpawnResult<T>[] = []
   private controller = new AbortController()
+  private ctx?: Context
+
+  constructor(ctx?: Context) {
+    this.ctx = ctx
+    if (ctx) {
+      if (ctx.signal.aborted) {
+        this.controller.abort()
+      } else {
+        ctx.signal.addEventListener('abort', () => this.cancel(), { once: true })
+      }
+    }
+  }
 
   /**
    * An `AbortSignal` shared across all tasks in this group.
@@ -58,7 +71,7 @@ export class WaitGroup<T extends StructuredCloneValue = StructuredCloneValue> {
     if (this.controller.signal.aborted) {
       throw new Error('WaitGroup has been cancelled')
     }
-    const handle = spawnTask<T, TChannels>(fn, opts)
+    const handle = spawnTask<T, TChannels>(fn, { ...opts, ctx: this.ctx })
     this.tasks.push(handle)
   }
 

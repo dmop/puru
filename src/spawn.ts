@@ -2,6 +2,7 @@ import { serializeFunction } from './serialize.js'
 import { getPool } from './pool.js'
 import type { Channel } from './channel.js'
 import { getChannelId } from './channel.js'
+import type { Context } from './context.js'
 import type { ChannelMap, ChannelValue, SpawnResult, StructuredCloneValue, Task, TaskError } from './types.js'
 
 let taskCounter = 0
@@ -53,6 +54,7 @@ export function spawn<T extends StructuredCloneValue, TChannels extends Record<s
     priority?: 'low' | 'normal' | 'high'
     concurrent?: boolean
     channels?: TChannels
+    ctx?: Context
   },
 ): SpawnResult<T> {
   const fnStr = serializeFunction(fn)
@@ -110,6 +112,19 @@ export function spawn<T extends StructuredCloneValue, TChannels extends Record<s
     },
   }
 
+  // Context integration: cancel the task when the context is cancelled
+  const ctx = opts?.ctx
+  if (ctx) {
+    if (ctx.signal.aborted) {
+      settled = true
+      rejectFn(ctx.err ?? new DOMException('Task was cancelled', 'AbortError'))
+      return {
+        result,
+        cancel: () => {},
+      }
+    }
+  }
+
   getPool().submit(task)
 
   const cancel = () => {
@@ -117,6 +132,17 @@ export function spawn<T extends StructuredCloneValue, TChannels extends Record<s
     settled = true
     getPool().cancelTask(taskId)
     rejectFn(new DOMException('Task was cancelled', 'AbortError'))
+  }
+
+  // Wire up context cancellation to task cancellation
+  if (ctx) {
+    const onAbort = () => cancel()
+    ctx.signal.addEventListener('abort', onAbort, { once: true })
+    // Clean up listener when task settles to avoid leaks
+    result.then(
+      () => ctx.signal.removeEventListener('abort', onAbort),
+      () => ctx.signal.removeEventListener('abort', onAbort),
+    )
   }
 
   return { result, cancel }

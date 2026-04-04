@@ -13,14 +13,18 @@ bun add @dmop/puru
 
 ## Core API
 
-- spawn(fn, opts?) — run a function in a worker thread, returns { result: Promise<T>, cancel() }
-- chan(capacity?) — Go-style channels for cross-thread communication
-- WaitGroup — spawn multiple tasks, wait for all (like Promise.all but off main thread)
-- ErrGroup — like WaitGroup but cancels all on first error
-- select(cases, opts?) — wait for first of multiple promises (like Go's select)
+- spawn(fn, opts?) — run a function in a worker thread, returns { result: Promise<T>, cancel() }. Accepts { ctx } for auto-cancellation via context.
+- chan(capacity?) — Go-style channels with len/cap inspection and directional views (sendOnly/recvOnly)
+- WaitGroup(ctx?) — spawn multiple tasks, wait for all. Optional context for auto-cancellation.
+- ErrGroup(ctx?) — like WaitGroup but cancels all on first error. Supports setLimit(n) for concurrency throttling.
+- select(cases, opts?) — wait for first of multiple promises (like Go's select). Supports send and recv cases.
+- context — background(), withCancel(), withTimeout(), withDeadline(), withValue(). Integrates with spawn/WaitGroup/ErrGroup.
 - Mutex — async mutual exclusion
+- RWMutex — read-write mutex (concurrent readers, exclusive writers)
 - Once<T> — run a function exactly once, all callers get same result
+- Cond — condition variable with wait/signal/broadcast
 - after(ms) / ticker(ms) — timers for use with select and async iteration
+- Timer(ms) — resettable one-shot timer with stop/reset (unlike fire-and-forget after())
 - register(name, fn) / run(name, ...args) — named task registry
 - configure(opts?) — global config (maxThreads, concurrency, idleTimeout, adapter)
 - stats() / resize(n) — pool introspection and runtime scaling

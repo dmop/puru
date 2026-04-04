@@ -28,8 +28,8 @@ let taskCounter = 0
 export function task<TArgs extends JsonValue[], TReturn extends StructuredCloneValue>(
   fn: (...args: TArgs) => TReturn | Promise<TReturn>,
 ): (...args: TArgs) => Promise<TReturn> {
+  const fnStr = serializeFunction(fn)
   return (...args: TArgs): Promise<TReturn> => {
-    const fnStr = serializeFunction(fn)
     const serializedArgs = args.map((a) => {
       const json = JSON.stringify(a)
       if (json === undefined) {

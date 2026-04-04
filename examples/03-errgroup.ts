@@ -18,7 +18,7 @@
  *   ✓ You want all results, including failures (use waitSettled())
  */
 
-import { ErrGroup, WaitGroup, configure } from '../dist/index.js'
+import { ErrGroup, WaitGroup, configure, background, withTimeout } from '../dist/index.js'
 
 configure({ adapter: 'auto' })
 
@@ -136,5 +136,61 @@ async function loadUserProfile(userId: number) {
         throw err
       }
     }
+  }
+}
+
+// ─── setLimit: throttle concurrent tasks ─────────────────────────────────────
+//
+// Like Go's errgroup.SetLimit(). Prevents spawning too many tasks at once.
+// Queued tasks wait for a slot to open before starting.
+
+{
+  console.log('\n--- ErrGroup.setLimit: max 2 concurrent tasks ---')
+
+  const eg = new ErrGroup<string>()
+  eg.setLimit(2) // only 2 tasks run at a time
+
+  for (let i = 1; i <= 6; i++) {
+    eg.spawn(async () => {
+      await new Promise<void>((r) => setTimeout(r, 50))
+      return `task-${i} done`
+    })
+  }
+
+  const results = await eg.wait()
+  console.log(`  Completed ${results.length} tasks with limit=2: ${results.join(', ')}`)
+}
+
+// ─── ErrGroup with context ───────────────────────────────────────────────────
+//
+// Pass a context to auto-cancel all tasks when the context expires.
+
+{
+  console.log('\n--- ErrGroup with context: auto-cancel on timeout ---')
+
+  const [ctx, cancel] = withTimeout(background(), 200)
+  const eg = new ErrGroup(ctx)
+
+  eg.spawn(async () => {
+    await new Promise<void>((r) => setTimeout(r, 50))
+    return 'fast task'
+  })
+
+  eg.spawn(async () => {
+    await new Promise<void>((r) => setTimeout(r, 50))
+    return 'another fast task'
+  })
+
+  try {
+    const results = await eg.wait()
+    console.log(`  Results: ${results.join(', ')}`)
+  } catch (err) {
+    if (err instanceof Error || err instanceof DOMException) {
+      console.log('  Cancelled:', getErrorMessage(err))
+    } else {
+      throw err
+    }
+  } finally {
+    cancel()
   }
 }

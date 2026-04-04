@@ -1,14 +1,17 @@
 /**
- * Example: select, after, ticker
+ * Example: select, after, ticker, Timer
  *
  * These primitives let you coordinate async timing without callback spaghetti.
  *
- * after(ms)    — one-shot: resolves after a delay. Use with select() for timeouts.
+ * after(ms)    — one-shot: resolves after a delay. Use with select() for timeouts. Fire-and-forget.
+ * Timer(ms)    — one-shot: like after(), but can be stopped and reset. Use for debounce, cancellable timeouts.
  * ticker(ms)   — repeating: ticks every N ms. Use for polling, heartbeats, retries.
  * select(cases)— race multiple promises; call the handler of whichever resolves first.
+ *                Supports both recv cases [ch.recv(), handler] and send cases [ch.send(v), handler].
  *
  * When to use select():
  *   ✓ Timeout a channel receive: [ch.recv(), timeout]
+ *   ✓ Timeout a channel send: [ch.send(v), timeout]
  *   ✓ Race two channels — process whichever has data first
  *   ✓ Non-blocking channel check (with { default: ... })
  *
@@ -16,13 +19,18 @@
  *   ✓ Timeout a single async operation (wrap in select)
  *   ✓ Delay between retries
  *
+ * When to use Timer instead of after():
+ *   ✓ You need to cancel the timeout if work finishes early
+ *   ✓ Debounce — reset on every input
+ *   ✓ Retry with adjustable delay — reset between attempts
+ *
  * When to use ticker():
  *   ✓ Health checks / polling on an interval
  *   ✓ Periodic stats reporting
  *   ✓ Heartbeat / keepalive
  */
 
-import { chan, select, after, ticker, spawn, configure } from '../dist/index.js'
+import { chan, select, after, ticker, spawn, configure, Timer } from '../dist/index.js'
 
 configure({ adapter: 'auto' })
 
@@ -203,4 +211,78 @@ configure({ adapter: 'auto' })
   }
 
   console.log(`  ${result}`)
+}
+
+// ─── select: send case with timeout ──────────────────────────────────────────
+//
+// Try to send on a channel. If the buffer is full and no receiver is ready
+// within the timeout, the send is skipped. Like Go's select with a send case.
+
+{
+  console.log('\n--- select: send with timeout ---')
+
+  const ch = chan<number>(1)
+  await ch.send(1) // fill the buffer
+
+  let outcome = ''
+  await select([
+    [ch.send(2), () => { outcome = 'sent' }],
+    [after(50), () => { outcome = 'send timed out (buffer full)' }],
+  ])
+
+  console.log(`  ${outcome}`)
+
+  // Drain and try again — now it succeeds
+  await ch.recv()
+  await select([
+    [ch.send(2), () => { outcome = 'sent successfully' }],
+    [after(50), () => { outcome = 'send timed out' }],
+  ])
+
+  console.log(`  ${outcome}`)
+}
+
+// ─── Timer: cancellable timeout ──────────────────────────────────────────────
+//
+// Unlike after(), Timer can be stopped early — no dangling timer.
+
+{
+  console.log('\n--- Timer: cancellable timeout ---')
+
+  const t = new Timer(500)
+
+  // Work finishes in 50ms — stop the timer early
+  const work = after(50).then(() => 'work done')
+
+  let outcome = ''
+  await select([
+    [work, (v) => {
+      const wasPending = t.stop()
+      outcome = `${v} (timer cancelled: ${wasPending})`
+    }],
+    [t.channel, () => { outcome = 'timed out' }],
+  ])
+
+  console.log(`  ${outcome}`)
+}
+
+// ─── Timer: debounce ─────────────────────────────────────────────────────────
+//
+// Reset the timer on every event. It only fires after a period of silence.
+
+{
+  console.log('\n--- Timer: debounce pattern ---')
+
+  const t = new Timer(100)
+  let events = 0
+
+  // Rapid events every 30ms — each resets the 100ms timer
+  for (let i = 0; i < 5; i++) {
+    events++
+    t.reset(100)
+    await after(30)
+  }
+
+  await t.channel
+  console.log(`  Timer fired after ${events} events (debounced, only fires once)`)
 }

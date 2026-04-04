@@ -1,6 +1,7 @@
 import { spawn as spawnTask } from './spawn.js'
 import type { ChannelValue, SpawnResult, StructuredCloneValue, TaskError } from './types.js'
 import type { Channel } from './channel.js'
+import type { Context } from './context.js'
 
 type SpawnChannels = Record<string, Channel<ChannelValue>>
 
@@ -38,9 +39,39 @@ export class ErrGroup<T extends StructuredCloneValue = StructuredCloneValue> {
   private controller = new AbortController()
   private firstError: TaskError | null = null
   private hasError = false
+  private ctx?: Context
+  private limit = 0 // 0 = unlimited
+  private inFlight = 0
+  private waiting: (() => void)[] = []
+
+  constructor(ctx?: Context) {
+    this.ctx = ctx
+    if (ctx) {
+      if (ctx.signal.aborted) {
+        this.controller.abort()
+      } else {
+        ctx.signal.addEventListener('abort', () => this.cancel(), { once: true })
+      }
+    }
+  }
 
   get signal(): AbortSignal {
     return this.controller.signal
+  }
+
+  /**
+   * Set the maximum number of tasks that can run concurrently.
+   * Like Go's `errgroup.SetLimit()`. Must be called before any `spawn()`.
+   * A value of 0 (default) means unlimited.
+   */
+  setLimit(n: number): void {
+    if (this.tasks.length > 0) {
+      throw new Error('SetLimit must be called before any spawn()')
+    }
+    if (n < 0 || !Number.isInteger(n)) {
+      throw new RangeError('Limit must be a non-negative integer')
+    }
+    this.limit = n
   }
 
   spawn<TChannels extends SpawnChannels = Record<never, never>>(
@@ -50,10 +81,37 @@ export class ErrGroup<T extends StructuredCloneValue = StructuredCloneValue> {
     if (this.controller.signal.aborted) {
       throw new Error('ErrGroup has been cancelled')
     }
-    const handle = spawnTask<T, TChannels>(fn, opts)
+
+    if (this.limit > 0 && this.inFlight >= this.limit) {
+      // Queue the spawn until a slot opens
+      const result = new Promise<void>((resolve) => {
+        this.waiting.push(resolve)
+      }).then(() => this.doSpawn(fn, opts))
+      this.tasks.push({ result, cancel: () => {} })
+      return
+    }
+
+    const result = this.doSpawn(fn, opts)
+    this.tasks.push({ result, cancel: () => {} })
+  }
+
+  private doSpawn<TChannels extends SpawnChannels = Record<never, never>>(
+    fn: (() => T | Promise<T>) | ((channels: TChannels) => T | Promise<T>),
+    opts?: { concurrent?: boolean; channels?: TChannels },
+  ): Promise<T> {
+    this.inFlight++
+    const handle = spawnTask<T, TChannels>(fn, { ...opts, ctx: this.ctx })
+
+    // When task settles, release the semaphore slot
+    const onSettle = () => {
+      this.inFlight--
+      const next = this.waiting.shift()
+      if (next) next()
+    }
 
     // Watch for errors and cancel all tasks on first failure
-    handle.result.catch((err) => {
+    handle.result.then(onSettle, (err) => {
+      onSettle()
       if (!this.hasError) {
         this.hasError = true
         this.firstError = err
@@ -61,7 +119,7 @@ export class ErrGroup<T extends StructuredCloneValue = StructuredCloneValue> {
       }
     })
 
-    this.tasks.push(handle)
+    return handle.result
   }
 
   async wait(): Promise<T[]> {

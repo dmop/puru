@@ -166,3 +166,51 @@ configure({ adapter: 'auto' })
     console.log(`  Worker ${worker} sent: ${value}`)
   }
 }
+
+// ─── Channel inspection: len and cap ─────────────────────────────────────────
+//
+// Like Go's len(ch) and cap(ch). Useful for monitoring backpressure.
+
+{
+  console.log('\n--- Channel inspection: len and cap ---')
+
+  const ch = chan<number>(5)
+
+  console.log(`  Empty: len=${ch.len}, cap=${ch.cap}`)
+
+  await ch.send(1)
+  await ch.send(2)
+  await ch.send(3)
+  console.log(`  After 3 sends: len=${ch.len}, cap=${ch.cap}`)
+
+  await ch.recv()
+  console.log(`  After 1 recv: len=${ch.len}, cap=${ch.cap}`)
+
+  ch.close()
+}
+
+// ─── Directional channels: type-safe boundaries ─────────────────────────────
+//
+// sendOnly() and recvOnly() return views that restrict what callers can do.
+// Like Go's chan<- T and <-chan T. Enforced at the type level.
+
+{
+  console.log('\n--- Directional channels ---')
+
+  const ch = chan<string>(3)
+
+  // Producer only gets send + close
+  const producer = ch.sendOnly()
+  await producer.send('hello')
+  await producer.send('world')
+  producer.close()
+
+  // Consumer only gets recv + iteration
+  const consumer = ch.recvOnly()
+  const values: string[] = []
+  for await (const v of consumer) {
+    values.push(v)
+  }
+
+  console.log(`  Received via recvOnly: ${values.join(', ')}`)
+}

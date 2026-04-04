@@ -16,7 +16,7 @@ bun add @dmop/puru
 ## Quick Start
 
 ```typescript
-import { spawn, chan, WaitGroup, select, after } from '@dmop/puru'
+import { spawn, chan, WaitGroup, ErrGroup, select, after, Timer, Mutex, RWMutex, Cond, background, withTimeout } from '@dmop/puru'
 
 // CPU work — runs in a dedicated worker thread
 const { result } = spawn(() => fibonacci(40))
@@ -66,9 +66,18 @@ Options:
 - priority: 'low' | 'normal' | 'high' (default: 'normal')
 - concurrent: boolean (default: false)
 - channels: Record<string, Channel<unknown>> — pass channels to the worker
+- ctx: Context — auto-cancel the task when the context is cancelled
 
 Exclusive mode (default): the function gets a dedicated thread. Use for CPU-heavy work.
 Concurrent mode ({ concurrent: true }): multiple tasks share a thread's event loop. Use for async/I/O work.
+
+Context integration — tasks auto-cancel when the context expires:
+
+```typescript
+const [ctx, cancel] = withTimeout(background(), 5000)
+const { result } = spawn(() => heavyWork(), { ctx })
+// task auto-cancels after 5s
+```
 
 Functions must be self-contained — they cannot capture variables from the enclosing scope:
 
@@ -89,6 +98,10 @@ const ch = chan<string>()   // unbuffered, capacity 0
 await ch.send(42)
 const value = await ch.recv() // 42
 
+// Inspect buffer state (like Go's len(ch) and cap(ch))
+ch.len // number of buffered values
+ch.cap // buffer capacity
+
 ch.close()
 await ch.recv() // null (closed)
 
@@ -96,6 +109,10 @@ await ch.recv() // null (closed)
 for await (const value of ch) {
   process(value)
 }
+
+// Directional views (like Go's chan<- T and <-chan T)
+const sender = ch.sendOnly()   // only send() and close()
+const receiver = ch.recvOnly() // only recv() and async iteration
 ```
 
 Channels in workers — pass channels to spawn() and use them across worker threads:
@@ -129,9 +146,10 @@ for (let i = 0; i < 4; i++) {
 
 ### WaitGroup
 
-Structured concurrency. Spawn multiple tasks, wait for all.
+Structured concurrency. Spawn multiple tasks, wait for all. Accepts optional Context.
 
 ```typescript
+// Without context
 const wg = new WaitGroup()
 wg.spawn(() => cpuWork())                          // exclusive
 wg.spawn(() => fetchData(), { concurrent: true })  // concurrent
@@ -140,11 +158,18 @@ const results = await wg.wait()       // like Promise.all
 const settled = await wg.waitSettled() // like Promise.allSettled
 
 wg.cancel() // cancel all tasks
+
+// With context — all tasks auto-cancel when context expires
+const [ctx, cancel] = withTimeout(background(), 5000)
+const wg2 = new WaitGroup(ctx)
+wg2.spawn(() => cpuWork())
+const results2 = await wg2.wait()
+cancel()
 ```
 
 ### ErrGroup
 
-Like WaitGroup, but cancels all remaining tasks on first error (modeled after Go's golang.org/x/sync/errgroup).
+Like WaitGroup, but cancels all remaining tasks on first error (modeled after Go's golang.org/x/sync/errgroup). Accepts optional Context. Supports setLimit() for concurrency throttling.
 
 ```typescript
 const eg = new ErrGroup()
@@ -158,6 +183,28 @@ try {
   // First error — all other tasks were cancelled
   console.error('Failed:', err)
 }
+```
+
+setLimit(n) — limit max concurrent tasks (like Go's errgroup.SetLimit). Must be called before any spawn().
+
+```typescript
+const eg = new ErrGroup()
+eg.setLimit(4) // max 4 tasks in flight
+
+for (const url of urls) {
+  eg.spawn(() => fetch(url).then(r => r.json()), { concurrent: true })
+}
+const results = await eg.wait() // runs 4 at a time
+```
+
+With context:
+
+```typescript
+const [ctx, cancel] = withTimeout(background(), 5000)
+const eg = new ErrGroup(ctx) // auto-cancel all tasks on timeout
+eg.setLimit(2)
+// ...
+cancel()
 ```
 
 ### Mutex
@@ -178,6 +225,31 @@ try { /* critical section */ }
 finally { mu.unlock() }
 ```
 
+### RWMutex
+
+Read-write mutex. Multiple concurrent readers, exclusive writers. Like Go's sync.RWMutex.
+
+Use instead of Mutex when reads vastly outnumber writes.
+
+```typescript
+const rw = new RWMutex()
+
+// Many readers can run concurrently
+const data = await rw.withRLock(() => cache.get('config'))
+
+// Writers get exclusive access
+await rw.withLock(() => cache.set('config', newValue))
+
+// Manual API
+await rw.rLock()
+try { /* read */ }
+finally { rw.rUnlock() }
+
+await rw.lock()
+try { /* write */ }
+finally { rw.unlock() }
+```
+
 ### Once<T>
 
 Run a function exactly once, even if called concurrently. All callers get the same result.
@@ -188,15 +260,43 @@ const conn = await once.do(() => createExpensiveConnection())
 // Subsequent calls return the cached result
 ```
 
-### select(cases, opts?)
+### Cond
 
-Wait for the first of multiple promises to resolve, like Go's select.
+Condition variable with Wait/Signal/Broadcast. Like Go's sync.Cond.
 
 ```typescript
-// Blocking — waits for first ready
+const mu = new Mutex()
+const cond = new Cond(mu)
+let ready = false
+
+// Waiter
+await mu.lock()
+while (!ready) await cond.wait() // releases lock, waits, re-acquires
+mu.unlock()
+
+// Signaler
+await mu.lock()
+ready = true
+cond.signal()     // wake one waiter
+// cond.broadcast() // wake all waiters
+mu.unlock()
+```
+
+### select(cases, opts?)
+
+Wait for the first of multiple promises to resolve, like Go's select. Supports both recv and send cases.
+
+```typescript
+// Recv case — handler receives the value
 await select([
   [ch.recv(), (value) => console.log('received', value)],
   [after(5000), () => console.log('timeout')],
+])
+
+// Send case — handler runs when send completes
+await select([
+  [ch.send(42), () => console.log('sent!')],
+  [after(1000), () => console.log('send timed out')],
 ])
 
 // Non-blocking — returns immediately if nothing is ready (Go's select with default)
@@ -206,18 +306,85 @@ await select(
 )
 ```
 
-### after(ms) / ticker(ms)
+### after(ms) / ticker(ms) / Timer(ms)
 
 Timers for use with select and async iteration.
 
 ```typescript
-await after(1000) // one-shot: resolves after 1 second
+await after(1000) // one-shot: resolves after 1 second (fire-and-forget)
 
 // Repeating: tick every 500ms
 const t = ticker(500)
 for await (const _ of t) {
   console.log('tick')
   if (shouldStop) t.stop()
+}
+```
+
+Timer — resettable one-shot timer. Unlike after(), can be stopped and reset.
+
+```typescript
+const t = new Timer(5000)
+
+// Use with select for cancellable timeouts
+await select([
+  [ch.recv(), (v) => { t.stop(); handle(v) }],
+  [t.channel, () => console.log('timed out')],
+])
+
+// Reset for debounce
+t.reset(300) // reschedule, creates new channel promise
+await t.channel
+
+// Properties
+t.stopped  // true after firing or stop()
+t.stop()   // returns true if was pending
+t.channel  // promise that resolves when timer fires
+```
+
+### Context
+
+Hierarchical cancellation, deadlines, and request-scoped values — modeled after Go's context package. Integrates with spawn(), WaitGroup, and ErrGroup.
+
+```typescript
+import { background, withCancel, withTimeout, withDeadline, withValue } from '@dmop/puru'
+
+// Root context — never cancelled
+const root = background()
+
+// Manual cancellation
+const [ctx, cancel] = withCancel(root)
+cancel() // or cancel('reason')
+ctx.err  // CancelledError
+
+// Timeout
+const [ctx2, cancel2] = withTimeout(root, 5000)
+ctx2.deadline // Date ~5s from now
+ctx2.done()   // promise that resolves when cancelled/expired
+cancel2()     // cancel early, clears timer
+
+// Absolute deadline
+const [ctx3, cancel3] = withDeadline(root, new Date('2025-12-31'))
+
+// Request-scoped values
+const ctx4 = withValue(root, 'requestId', 'abc-123')
+ctx4.value('requestId') // 'abc-123'
+
+// Composition — child inherits parent's deadline and cancellation
+const [parent] = withTimeout(root, 10000)
+const child = withValue(parent, 'userId', '42')
+// child cancels when parent does (10s timeout)
+```
+
+Context interface:
+
+```typescript
+interface Context {
+  readonly signal: AbortSignal
+  readonly deadline: Date | null
+  readonly err: CancelledError | DeadlineExceededError | null
+  value<T>(key: symbol | string): T | undefined
+  done(): Promise<void>
 }
 ```
 

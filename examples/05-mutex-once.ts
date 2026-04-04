@@ -1,13 +1,18 @@
 /**
  * Example: Mutex and Once
  *
- * Mutex — serialize access to a shared resource under concurrency.
- * Once  — initialize something exactly once, even under concurrent calls.
+ * Mutex   — serialize access to a shared resource under concurrency.
+ * RWMutex — like Mutex, but allows concurrent readers (see example 15).
+ * Once    — initialize something exactly once, even under concurrent calls.
  *
  * When to use Mutex:
  *   ✓ Multiple async tasks writing to a shared counter / state
  *   ✓ Protecting a non-atomic read-modify-write operation
  *   ✓ Serializing writes to a shared file or DB connection
+ *
+ * When to use RWMutex instead of Mutex:
+ *   ✓ Read-heavy workloads — many readers, few writers
+ *   ✓ Config caches, lookup tables, shared state that's mostly read
  *
  * When NOT to use Mutex:
  *   ✗ Protecting reads only (reads are already safe without locks)

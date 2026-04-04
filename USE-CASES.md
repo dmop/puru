@@ -200,6 +200,57 @@ app.post('/login', async (req, res) => {
 
 ---
 
+## Request-Level Timeouts with Context
+
+Go's `context` package is the standard way to propagate deadlines and cancellation. puru's context works the same: derive child contexts from a parent, and cancellation flows downward.
+
+```ts
+import { background, withTimeout, withValue, WaitGroup } from '@dmop/puru'
+
+app.get('/dashboard/:tenantId', async (req, res) => {
+  // 1. Create a context with a 2s SLA and request metadata
+  const ctx = withValue(background(), 'tenantId', req.params.tenantId)
+  const [reqCtx, cancel] = withTimeout(ctx, 2000)
+
+  const wg = new WaitGroup()
+  wg.spawn(() => aggregateSales(/* inline */), { concurrent: true })
+  wg.spawn(() => aggregateUsers(/* inline */), { concurrent: true })
+  wg.spawn(() => aggregateRevenue(/* inline */), { concurrent: true })
+
+  // Cancel all tasks if the deadline passes
+  reqCtx.done().then(() => wg.cancel())
+
+  try {
+    const [sales, users, revenue] = await wg.wait()
+    res.json({ sales, users, revenue })
+  } catch {
+    if (reqCtx.err?.name === 'DeadlineExceededError') {
+      res.status(504).json({ error: 'Request timed out' })
+    } else {
+      res.status(500).json({ error: 'Internal error' })
+    }
+  } finally {
+    cancel() // always clean up — clears the timer
+  }
+})
+```
+
+**Why context over raw `setTimeout`:**
+
+- **Composable** — nest `withTimeout` inside `withTimeout`, the shorter deadline always wins
+- **Hierarchical** — cancel a parent and all children cancel automatically
+- **Value propagation** — carry trace IDs, user IDs, or tenant IDs without threading args
+- **Clean API** — `ctx.done()`, `ctx.err`, `ctx.signal` integrate with existing patterns
+
+**Production scenarios:**
+
+- Request-level SLA enforcement (API gateways, BFFs)
+- Graceful shutdown (cancel all in-flight work with a single root cancel)
+- Nested timeouts (outer request timeout + inner per-service timeout)
+- Distributed tracing (attach trace/span IDs to the context chain)
+
+---
+
 ## Batch Processing with Deadlines
 
 Real-time systems need bounded response times. `select` + `after` lets you race computation against a deadline — return the best result you have before timeout.

@@ -1,6 +1,8 @@
 import type { StructuredCloneValue } from './types.js'
 
-type SelectCase<T = StructuredCloneValue> = [Promise<T>, (value: T) => void]
+type RecvCase<T = StructuredCloneValue> = [Promise<T>, (value: T) => void]
+type SendCase = [Promise<void>, () => void]
+type SelectCase<T = StructuredCloneValue> = RecvCase<T> | SendCase
 
 /**
  * Options for `select()`.
@@ -18,10 +20,13 @@ export interface SelectOptions {
  * Each case is a `[promise, handler]` tuple. The handler for the first settled
  * promise is called with its value. All other handlers are ignored.
  *
+ * **Recv cases:** `[ch.recv(), (value) => ...]` — handler receives the value.
+ * **Send cases:** `[ch.send(value), () => ...]` — handler is called when the send completes.
+ *
  * If `opts.default` is provided, `select` becomes non-blocking: if no promise
  * is already resolved, the default runs immediately (Go's `select { default: ... }`).
  *
- * Commonly used with `ch.recv()`, `after()`, and `spawn().result`.
+ * Commonly used with `ch.recv()`, `ch.send()`, `after()`, and `spawn().result`.
  *
  * @example
  * // Block until a channel message arrives or timeout after 5s
@@ -36,6 +41,13 @@ export interface SelectOptions {
  *   [[ch.recv(), (value) => process(value)]],
  *   { default: () => console.log('channel empty — doing other work') },
  * )
+ *
+ * @example
+ * // Select with send case — try to send or timeout
+ * await select([
+ *   [ch.send(value), () => console.log('sent!')],
+ *   [after(1000), () => console.log('send timed out')],
+ * ])
  *
  * @example
  * // Race two worker results against a deadline
@@ -61,7 +73,6 @@ export function select(
 
   // Non-blocking: if default is provided, check if any promise is already settled
   if (opts?.default) {
-    // Race a microtask against the promises to check if any is immediately ready
     return new Promise<void>((resolve, reject) => {
       let settled = false
 
@@ -72,7 +83,7 @@ export function select(
             if (settled) return
             settled = true
             try {
-              handler(value)
+              ;(handler as (value: unknown) => void)(value)
               resolve()
             } catch (err) {
               reject(err)
@@ -111,7 +122,7 @@ export function select(
           if (settled) return
           settled = true
           try {
-            handler(value)
+            ;(handler as (value: unknown) => void)(value)
             resolve()
           } catch (err) {
             reject(err)

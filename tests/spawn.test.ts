@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { spawn, resetTaskCounter } from '../src/spawn.js'
 import { resetPool } from '../src/pool.js'
 import { resetConfig, configure } from '../src/configure.js'
+import { background, withCancel, withTimeout } from '../src/context.js'
 
 describe('spawn', () => {
   beforeEach(() => {
@@ -107,6 +108,44 @@ describe('spawn', () => {
       name: 'test',
       values: [1, 2, 3],
       nested: { ok: true },
+    })
+  })
+
+  describe('context integration', () => {
+    it('rejects immediately if context is already cancelled', async () => {
+      const [ctx, cancel] = withCancel(background())
+      cancel()
+      const { result } = spawn(() => 42, { ctx })
+      await expect(result).rejects.toThrow('context cancelled')
+    })
+
+    it('cancels a running task when context is cancelled', async () => {
+      const [ctx, cancel] = withCancel(background())
+      const { result } = spawn(() => {
+        const start = Date.now()
+        while (Date.now() - start < 5000) { /* busy */ }
+        return 'done'
+      }, { ctx })
+
+      cancel()
+      await expect(result).rejects.toThrow('Task was cancelled')
+    })
+
+    it('does not interfere when task completes before context cancellation', async () => {
+      const [ctx] = withCancel(background())
+      const { result } = spawn(() => 42, { ctx })
+      expect(await result).toBe(42)
+    })
+
+    it('cancels with withTimeout', async () => {
+      const [ctx] = withTimeout(background(), 50)
+      const { result } = spawn(() => {
+        const start = Date.now()
+        while (Date.now() - start < 5000) { /* busy */ }
+        return 'done'
+      }, { ctx })
+
+      await expect(result).rejects.toThrow('Task was cancelled')
     })
   })
 })
