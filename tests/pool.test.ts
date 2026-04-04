@@ -5,6 +5,8 @@ import type { ManagedWorker, WorkerAdapter } from '../src/adapters/base.js'
 import { resetConfig } from '../src/configure.js'
 import type { StructuredCloneValue, Task, TaskError } from '../src/types.js'
 
+const fnIds = new Map<string, string>()
+
 function createTask(
   id: string,
   fnStr: string,
@@ -16,7 +18,12 @@ function createTask(
     resolve = res
     reject = rej
   })
-  const task: Task = { id, fnStr, resolve, reject, priority, concurrent: false }
+  let fnId = fnIds.get(fnStr)
+  if (!fnId) {
+    fnId = `fn_${fnIds.size + 1}`
+    fnIds.set(fnStr, fnId)
+  }
+  const task: Task = { id, fnId, fnStr, resolve, reject, priority, concurrent: false }
   return { task, promise }
 }
 

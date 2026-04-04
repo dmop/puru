@@ -80,12 +80,15 @@ function __buildChannelProxies(channels) {
 const __fnCache = new Map();
 const __FN_CACHE_MAX = 1000;
 
-function __execFn(fnStr, channels, args) {
-  let parsedFn = __fnCache.get(fnStr);
+function __execFn(fnId, fnStr, channels, args) {
+  let parsedFn = __fnCache.get(fnId);
   if (!parsedFn) {
+    if (!fnStr) {
+      throw new Error('Worker function was not registered on this worker');
+    }
     parsedFn = (new Function('return (' + fnStr + ')'))();
     if (__fnCache.size >= __FN_CACHE_MAX) __fnCache.delete(__fnCache.keys().next().value);
-    __fnCache.set(fnStr, parsedFn);
+    __fnCache.set(fnId, parsedFn);
   }
   if (args) {
     return parsedFn(...args);
@@ -121,7 +124,7 @@ parentPort.on('message', async (msg) => {
           return;
         }
         try {
-          const result = await __execFn(msg.fnStr, msg.channels, msg.args);
+          const result = await __execFn(msg.fnId, msg.fnStr, msg.channels, msg.args);
           if (!cancelledTasks.has(msg.taskId)) {
             parentPort.postMessage({ type: 'result', taskId: msg.taskId, value: result });
           }
@@ -140,7 +143,7 @@ parentPort.on('message', async (msg) => {
       })();
     } else {
       try {
-        const result = await __execFn(msg.fnStr, msg.channels, msg.args);
+        const result = await __execFn(msg.fnId, msg.fnStr, msg.channels, msg.args);
         parentPort.postMessage({ type: 'result', taskId: msg.taskId, value: result });
       } catch (error) {
         parentPort.postMessage({
@@ -183,7 +186,7 @@ self.onmessage = async (event) => {
           return;
         }
         try {
-          const result = await __execFn(msg.fnStr, msg.channels, msg.args);
+          const result = await __execFn(msg.fnId, msg.fnStr, msg.channels, msg.args);
           if (!cancelledTasks.has(msg.taskId)) {
             self.postMessage({ type: 'result', taskId: msg.taskId, value: result });
           }
@@ -202,7 +205,7 @@ self.onmessage = async (event) => {
       })();
     } else {
       try {
-        const result = await __execFn(msg.fnStr, msg.channels, msg.args);
+        const result = await __execFn(msg.fnId, msg.fnStr, msg.channels, msg.args);
         self.postMessage({ type: 'result', taskId: msg.taskId, value: result });
       } catch (error) {
         self.postMessage({

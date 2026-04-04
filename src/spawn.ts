@@ -1,4 +1,4 @@
-import { serializeFunction } from "./serialize.js";
+import { getSerializedFunctionRef } from "./serialize.js";
 import { getPool } from "./pool.js";
 import type { Channel } from "./channel.js";
 import { getChannelId } from "./channel.js";
@@ -67,7 +67,7 @@ export function spawn<
     ctx?: Context;
   },
 ): SpawnResult<T> {
-  const fnStr = serializeFunction(fn);
+  const { fnId, fnStr } = getSerializedFunctionRef(fn);
   const taskId = String(++taskCounter);
 
   // Capture the call site for better error reporting.
@@ -96,6 +96,7 @@ export function spawn<
 
   const task: Task = {
     id: taskId,
+    fnId,
     fnStr,
     priority: opts?.priority ?? "normal",
     concurrent: opts?.concurrent ?? false,

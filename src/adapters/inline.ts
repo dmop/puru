@@ -47,7 +47,7 @@ class InlineManagedWorker implements ManagedWorker {
     if (this.terminated) return;
 
     if (msg.type === "execute") {
-      this.executeTask(msg.taskId, msg.fnStr, msg.concurrent, msg.channels, msg.args);
+      this.executeTask(msg.taskId, msg.fnId, msg.fnStr, msg.concurrent, msg.channels, msg.args);
     } else if (msg.type === "cancel") {
       this.cancelledTasks.add(msg.taskId);
     } else if (msg.type === "channel-result") {
@@ -124,7 +124,8 @@ class InlineManagedWorker implements ManagedWorker {
 
   private executeTask(
     taskId: string,
-    fnStr: string,
+    fnId: string,
+    fnStr: string | undefined,
     concurrent: boolean,
     channels?: ChannelMap,
     args?: JsonValue[],
@@ -137,14 +138,17 @@ class InlineManagedWorker implements ManagedWorker {
         return;
       }
       try {
-        let parsedFn = this.fnCache.get(fnStr);
+        let parsedFn = this.fnCache.get(fnId);
         if (!parsedFn) {
+          if (!fnStr) {
+            throw new Error("Worker function was not registered on this worker");
+          }
           // eslint-disable-next-line @typescript-eslint/no-implied-eval
           parsedFn = new Function("return (" + fnStr + ")")() as (
             ...args: JsonValue[]
           ) => StructuredCloneValue | Promise<StructuredCloneValue>;
           if (this.fnCache.size >= 1000) this.fnCache.clear();
-          this.fnCache.set(fnStr, parsedFn);
+          this.fnCache.set(fnId, parsedFn);
         }
         let result: StructuredCloneValue;
         if (args) {

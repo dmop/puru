@@ -3,6 +3,8 @@ import { WorkerPool } from '../src/pool.js'
 import { InlineAdapter } from '../src/adapters/inline.js'
 import type { StructuredCloneValue, Task, TaskError } from '../src/types.js'
 
+const fnIds = new Map<string, string>()
+
 describe('InlineAdapter', () => {
   let pool: WorkerPool
 
@@ -55,6 +57,17 @@ describe('InlineAdapter', () => {
     expect(await t1.result).toBe(77)
     expect(await t2.result).toBe(77)
     expect(await t3.result).toBe(77)
+  })
+
+  it('reuses a registered function by fnId without resending fnStr', async () => {
+    const first = createTask('reuse-1', '() => 123')
+    const second = createTask('reuse-2', '() => 123', undefined, false)
+
+    pool.submit(first.task)
+    expect(await first.result).toBe(123)
+
+    pool.submit(second.task)
+    expect(await second.result).toBe(123)
   })
 
   it('executes a task with args', async () => {
@@ -143,13 +156,32 @@ describe('InlineAdapter', () => {
   })
 })
 
-function createTask(id: string, fnStr: string, args?: import('../src/types.js').JsonValue[]) {
+function createTask(
+  id: string,
+  fnStr: string,
+  args?: import('../src/types.js').JsonValue[],
+  includeFnStr = true,
+) {
   let resolve!: (value: StructuredCloneValue) => void
   let reject!: (reason: TaskError) => void
   const result = new Promise<StructuredCloneValue>((res, rej) => {
     resolve = res
     reject = rej
   })
-  const task: Task = { id, fnStr, args, resolve, reject, priority: 'normal', concurrent: false }
+  let fnId = fnIds.get(fnStr)
+  if (!fnId) {
+    fnId = `fn_${fnIds.size + 1}`
+    fnIds.set(fnStr, fnId)
+  }
+  const task: Task = {
+    id,
+    fnId,
+    fnStr: includeFnStr ? fnStr : '',
+    args,
+    resolve,
+    reject,
+    priority: 'normal',
+    concurrent: false,
+  }
   return { task, result, promise: { task, result } }
 }

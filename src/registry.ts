@@ -1,5 +1,5 @@
 import { getPool } from "./pool.js";
-import { serializeFunction } from "./serialize.js";
+import { getSerializedFunctionRef } from "./serialize.js";
 import type { JsonValue, StructuredCloneValue, Task, TaskError } from "./types.js";
 
 let taskCounter = 0;
@@ -28,7 +28,7 @@ let taskCounter = 0;
 export function task<TArgs extends JsonValue[], TReturn extends StructuredCloneValue>(
   fn: (...args: TArgs) => TReturn | Promise<TReturn>,
 ): (...args: TArgs) => Promise<TReturn> {
-  const fnStr = serializeFunction(fn);
+  const { fnId, fnStr } = getSerializedFunctionRef(fn);
   return (...args: TArgs): Promise<TReturn> => {
     for (const a of args) {
       if (JSON.stringify(a) === undefined) {
@@ -52,6 +52,7 @@ export function task<TArgs extends JsonValue[], TReturn extends StructuredCloneV
 
     const taskObj: Task = {
       id: taskId,
+      fnId,
       fnStr,
       args,
       priority: "normal",

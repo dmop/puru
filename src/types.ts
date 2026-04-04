@@ -40,6 +40,7 @@ export interface PuruConfig {
 
 export interface Task {
   id: string;
+  fnId: string;
   fnStr: string;
   args?: JsonValue[];
   resolve: (value: StructuredCloneValue) => void;
@@ -53,7 +54,8 @@ export type WorkerMessage =
   | {
       type: "execute";
       taskId: string;
-      fnStr: string;
+      fnId: string;
+      fnStr?: string;
       args?: JsonValue[];
       concurrent: boolean;
       channels?: ChannelMap;

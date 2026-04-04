@@ -8,6 +8,15 @@ const VALID_FN_START_RE =
   /^(?:function\b|async\s+function\b|async\s*\(|\(|[a-zA-Z_$][a-zA-Z0-9_$]*\s*=>|async\s+[a-zA-Z_$])/;
 
 const serializeCache = new WeakMap<Function, string>();
+const functionRefCache = new WeakMap<Function, SerializedFunctionRef>();
+const functionIdCache = new Map<string, string>();
+const FUNCTION_ID_CACHE_MAX = 512;
+let functionIdCounter = 0;
+
+export interface SerializedFunctionRef {
+  fnId: string;
+  fnStr: string;
+}
 
 export function serializeFunction(fn: Function): string {
   if (typeof fn !== "function") {
@@ -56,4 +65,29 @@ export function serializeFunction(fn: Function): string {
 
   serializeCache.set(fn, str);
   return str;
+}
+
+export function getSerializedFunctionRef(fn: Function): SerializedFunctionRef {
+  const cached = functionRefCache.get(fn);
+  if (cached) return cached;
+
+  const fnStr = serializeFunction(fn);
+  let fnId = functionIdCache.get(fnStr);
+
+  if (fnId) {
+    // Refresh insertion order to keep recent functions hot.
+    functionIdCache.delete(fnStr);
+  } else {
+    fnId = `fn_${++functionIdCounter}`;
+  }
+
+  functionIdCache.set(fnStr, fnId);
+  if (functionIdCache.size > FUNCTION_ID_CACHE_MAX) {
+    const oldestFnStr = functionIdCache.keys().next().value;
+    if (oldestFnStr !== undefined) functionIdCache.delete(oldestFnStr);
+  }
+
+  const ref = { fnId, fnStr };
+  functionRefCache.set(fn, ref);
+  return ref;
 }

@@ -45,6 +45,7 @@ export class WorkerPool {
   private totalCompleted = 0;
   private totalFailed = 0;
   private taskMap = new Map<string, Task>();
+  private workerFunctionIds = new Map<ManagedWorker, Set<string>>();
 
   // Per-worker deques for work-stealing strategy
   private workerDeques = new Map<ManagedWorker, PriorityQueues>();
@@ -304,7 +305,8 @@ export class WorkerPool {
     const msg: WorkerMessage = {
       type: "execute",
       taskId: task.id,
-      fnStr: task.fnStr,
+      fnId: task.fnId,
+      fnStr: this.getWorkerFunctionString(worker, task),
       args: task.args,
       concurrent: false,
       channels: task.channels,
@@ -330,12 +332,25 @@ export class WorkerPool {
     const msg: WorkerMessage = {
       type: "execute",
       taskId: task.id,
-      fnStr: task.fnStr,
+      fnId: task.fnId,
+      fnStr: this.getWorkerFunctionString(worker, task),
       args: task.args,
       concurrent: true,
       channels: task.channels,
     };
     worker.postMessage(msg);
+  }
+
+  private getWorkerFunctionString(worker: ManagedWorker, task: Task): string | undefined {
+    let knownFunctions = this.workerFunctionIds.get(worker);
+    if (!knownFunctions) {
+      knownFunctions = new Set<string>();
+      this.workerFunctionIds.set(worker, knownFunctions);
+    }
+
+    if (knownFunctions.has(task.fnId)) return undefined;
+    knownFunctions.add(task.fnId);
+    return task.fnStr;
   }
 
   // --- Task completion ---
@@ -677,6 +692,7 @@ export class WorkerPool {
     this.sharedWorkers.clear();
     this.allWorkers.clear();
     this.idleTimers.clear();
+    this.workerFunctionIds.clear();
   }
 
   resize(maxThreads: number): void {
@@ -753,6 +769,7 @@ export class WorkerPool {
 
     worker.on("exit", (_code: number) => {
       this.allWorkers.delete(worker);
+      this.workerFunctionIds.delete(worker);
       const timer = this.idleTimers.get(worker);
       if (timer) {
         clearTimeout(timer);

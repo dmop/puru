@@ -1,10 +1,15 @@
 import type { ChannelValue } from "./types.js";
+import { RingBuffer, FifoQueue } from "./queue.js";
 
 // Internal sentinel used to signal channel closure.
 // Using a symbol instead of null means null is a valid value to send through a channel
 // at the implementation level, and avoids silent failures if someone attempts to send null.
 // The public recv() API still returns null for a closed channel — the symbol is not leaked.
 const CLOSED = Symbol("puru.channel.closed");
+
+// Cached promises to avoid allocations on hot paths
+const RESOLVED_VOID: Promise<void> = Promise.resolve();
+const RESOLVED_NULL: Promise<null> = Promise.resolve(null);
 
 /**
  * A Go-style channel for communicating between async tasks and across worker threads.
@@ -81,15 +86,16 @@ class ChannelImpl<T extends ChannelValue> implements ChannelHandle<T> {
   readonly _id: string;
   /** @internal — true once the channel ID has been sent to a worker */
   _shared = false;
-  private buffer: T[] = [];
+  private buffer: RingBuffer<T>;
   private capacity: number;
   private closed = false;
-  private recvQueue: PendingRecv<T>[] = [];
-  private sendQueue: PendingSend<T>[] = [];
+  private recvQueue = new FifoQueue<PendingRecv<T>>();
+  private sendQueue = new FifoQueue<PendingSend<T>>();
 
   constructor(capacity: number) {
     this._id = `__ch_${++channelIdCounter}`;
     this.capacity = capacity;
+    this.buffer = new RingBuffer<T>(capacity);
     channelRegistry.set(this._id, this as ChannelHandle<ChannelValue>);
   }
 
@@ -110,13 +116,13 @@ class ChannelImpl<T extends ChannelValue> implements ChannelHandle<T> {
     const receiver = this.recvQueue.shift();
     if (receiver) {
       receiver.resolve(value);
-      return Promise.resolve();
+      return RESOLVED_VOID;
     }
 
     // If buffer has room, buffer it
     if (this.buffer.length < this.capacity) {
       this.buffer.push(value);
-      return Promise.resolve();
+      return RESOLVED_VOID;
     }
 
     // Block until a receiver is ready
@@ -148,7 +154,7 @@ class ChannelImpl<T extends ChannelValue> implements ChannelHandle<T> {
     // If closed, return null
     if (this.closed) {
       this.maybeUnregister();
-      return Promise.resolve(null);
+      return RESOLVED_NULL as Promise<T | null>;
     }
 
     // Block until a sender provides a value or channel closes
@@ -167,13 +173,13 @@ class ChannelImpl<T extends ChannelValue> implements ChannelHandle<T> {
     for (const receiver of this.recvQueue) {
       receiver.resolve(CLOSED);
     }
-    this.recvQueue = [];
+    this.recvQueue.clear();
 
     // Reject all pending senders
     for (const sender of this.sendQueue) {
       sender.reject(new Error("send on closed channel"));
     }
-    this.sendQueue = [];
+    this.sendQueue.clear();
   }
 
   private maybeUnregister(): void {
