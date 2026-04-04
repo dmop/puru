@@ -58,7 +58,11 @@ const { result } = spawn(() => {
   return fibonacci(40)
 })
 
-console.log(await result)
+try {
+  console.log(await result)
+} catch (err) {
+  console.error(err)
+}
 ```
 
 </td>
