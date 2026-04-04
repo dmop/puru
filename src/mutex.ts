@@ -28,42 +28,42 @@
  * }
  */
 export class Mutex {
-  private queue: (() => void)[] = []
-  private locked = false
+  private queue: (() => void)[] = [];
+  private locked = false;
 
   async lock(): Promise<void> {
     if (!this.locked) {
-      this.locked = true
-      return
+      this.locked = true;
+      return;
     }
     return new Promise<void>((resolve) => {
-      this.queue.push(resolve)
-    })
+      this.queue.push(resolve);
+    });
   }
 
   unlock(): void {
     if (!this.locked) {
-      throw new Error('Cannot unlock a mutex that is not locked')
+      throw new Error("Cannot unlock a mutex that is not locked");
     }
-    const next = this.queue.shift()
+    const next = this.queue.shift();
     if (next) {
-      next()
+      next();
     } else {
-      this.locked = false
+      this.locked = false;
     }
   }
 
   async withLock<T>(fn: () => T | Promise<T>): Promise<T> {
-    await this.lock()
+    await this.lock();
     try {
-      return await fn()
+      return await fn();
     } finally {
-      this.unlock()
+      this.unlock();
     }
   }
 
   get isLocked(): boolean {
-    return this.locked
+    return this.locked;
   }
 }
 
@@ -91,92 +91,92 @@ export class Mutex {
  * })
  */
 export class RWMutex {
-  private readers = 0
-  private writing = false
-  private readQueue: (() => void)[] = []
-  private writeQueue: (() => void)[] = []
+  private readers = 0;
+  private writing = false;
+  private readQueue: (() => void)[] = [];
+  private writeQueue: (() => void)[] = [];
 
   async rLock(): Promise<void> {
     if (!this.writing && this.writeQueue.length === 0) {
-      this.readers++
-      return
+      this.readers++;
+      return;
     }
     return new Promise<void>((resolve) => {
       this.readQueue.push(() => {
-        this.readers++
-        resolve()
-      })
-    })
+        this.readers++;
+        resolve();
+      });
+    });
   }
 
   rUnlock(): void {
     if (this.readers <= 0) {
-      throw new Error('Cannot rUnlock a RWMutex that is not read-locked')
+      throw new Error("Cannot rUnlock a RWMutex that is not read-locked");
     }
-    this.readers--
+    this.readers--;
     if (this.readers === 0) {
-      this.wakeWriter()
+      this.wakeWriter();
     }
   }
 
   async lock(): Promise<void> {
     if (!this.writing && this.readers === 0) {
-      this.writing = true
-      return
+      this.writing = true;
+      return;
     }
     return new Promise<void>((resolve) => {
       this.writeQueue.push(() => {
-        this.writing = true
-        resolve()
-      })
-    })
+        this.writing = true;
+        resolve();
+      });
+    });
   }
 
   unlock(): void {
     if (!this.writing) {
-      throw new Error('Cannot unlock a RWMutex that is not write-locked')
+      throw new Error("Cannot unlock a RWMutex that is not write-locked");
     }
-    this.writing = false
+    this.writing = false;
     // Prefer waking readers first (many can run); fall back to a writer
     if (this.readQueue.length > 0) {
-      this.wakeReaders()
+      this.wakeReaders();
     } else {
-      this.wakeWriter()
+      this.wakeWriter();
     }
   }
 
   async withRLock<T>(fn: () => T | Promise<T>): Promise<T> {
-    await this.rLock()
+    await this.rLock();
     try {
-      return await fn()
+      return await fn();
     } finally {
-      this.rUnlock()
+      this.rUnlock();
     }
   }
 
   async withLock<T>(fn: () => T | Promise<T>): Promise<T> {
-    await this.lock()
+    await this.lock();
     try {
-      return await fn()
+      return await fn();
     } finally {
-      this.unlock()
+      this.unlock();
     }
   }
 
   get isLocked(): boolean {
-    return this.writing || this.readers > 0
+    return this.writing || this.readers > 0;
   }
 
   private wakeReaders(): void {
-    const queue = this.readQueue
-    this.readQueue = []
+    const queue = this.readQueue;
+    this.readQueue = [];
     for (const wake of queue) {
-      wake()
+      wake();
     }
   }
 
   private wakeWriter(): void {
-    const next = this.writeQueue.shift()
-    if (next) next()
+    const next = this.writeQueue.shift();
+    if (next) next();
   }
 }

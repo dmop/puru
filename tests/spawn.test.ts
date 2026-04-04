@@ -111,6 +111,123 @@ describe('spawn', () => {
     })
   })
 
+  it('enriches error stack with spawn call site', async () => {
+    const { result } = spawn(() => {
+      throw new Error('stack test')
+    })
+    const err = await result.catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).stack).toContain('--- spawned at ---')
+  })
+
+  it('handles non-Error throws from worker', async () => {
+    const { result } = spawn(() => {
+      throw 'string error'  // eslint-disable-line no-throw-literal
+    })
+    await expect(result).rejects.toThrow('string error')
+  })
+
+  it('returns the same result when the same function is spawned multiple times', async () => {
+    const fn = () => 7
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () => spawn(fn).result),
+    )
+    expect(results).toEqual(Array(10).fill(7))
+  })
+
+  it('returns undefined when function has no return', async () => {
+    const { result } = spawn(() => {})
+    expect(await result).toBeUndefined()
+  })
+
+  it('returns null from worker', async () => {
+    const { result } = spawn(() => null)
+    expect(await result).toBeNull()
+  })
+
+  it('returns 0 and empty string without confusing them with falsy', async () => {
+    const { result: zeroResult } = spawn(() => 0)
+    const { result: emptyResult } = spawn(() => '')
+    expect(await zeroResult).toBe(0)
+    expect(await emptyResult).toBe('')
+  })
+
+  it('cancelling an already-settled task is a no-op', async () => {
+    const { result, cancel } = spawn(() => 42)
+    expect(await result).toBe(42)
+    // Should not throw
+    cancel()
+    cancel()
+  })
+
+  it('rejects with TypeError from worker', async () => {
+    const { result } = spawn(() => {
+      throw new TypeError('bad type')
+    })
+    await expect(result).rejects.toThrow('bad type')
+  })
+
+  it('rejects with RangeError from worker', async () => {
+    const { result } = spawn(() => {
+      throw new RangeError('out of range')
+    })
+    await expect(result).rejects.toThrow('out of range')
+  })
+
+  it('rejects when async function rejects a promise', async () => {
+    const { result } = spawn(async () => {
+      return Promise.reject(new Error('async rejection'))
+    })
+    await expect(result).rejects.toThrow('async rejection')
+  })
+
+  it('rejects on syntax error in function body', async () => {
+    // Use new Function to craft a function whose body has a runtime error
+    const { result } = spawn(() => {
+      // @ts-expect-error intentional runtime error
+      return undeclaredVariable  // eslint-disable-line no-undef
+    })
+    await expect(result).rejects.toThrow('undeclaredVariable')
+  })
+
+  it('cancel before task starts still rejects with cancellation', async () => {
+    resetConfig()
+    configure({ maxThreads: 1, idleTimeout: 1000 })
+
+    // Block the worker
+    const blocker = spawn(() => {
+      let s = 0
+      for (let i = 0; i < 50_000_000; i++) s += i
+      return s
+    })
+
+    // Queue and immediately cancel
+    const queued = spawn(() => 'never')
+    queued.cancel()
+    await expect(queued.result).rejects.toThrow('Task was cancelled')
+
+    await blocker.result
+  })
+
+  it('error in one spawn does not break subsequent spawns', async () => {
+    const { result: bad } = spawn(() => { throw new Error('first') })
+    await expect(bad).rejects.toThrow('first')
+
+    const { result: good } = spawn(() => 'recovered')
+    expect(await good).toBe('recovered')
+  })
+
+  it('multiple spawns can fail independently', async () => {
+    const results = await Promise.allSettled([
+      spawn(() => { throw new Error('err1') }).result,
+      spawn(() => 'ok').result,
+      spawn(() => { throw new Error('err3') }).result,
+    ])
+    expect(results[0].status).toBe('rejected')
+    expect(results[1]).toEqual({ status: 'fulfilled', value: 'ok' })
+    expect(results[2].status).toBe('rejected')
+  })
+
   describe('context integration', () => {
     it('rejects immediately if context is already cancelled', async () => {
       const [ctx, cancel] = withCancel(background())
@@ -146,6 +263,27 @@ describe('spawn', () => {
       }, { ctx })
 
       await expect(result).rejects.toThrow('Task was cancelled')
+    })
+
+    it('cancel + context cancel does not double-reject', async () => {
+      const [ctx, ctxCancel] = withCancel(background())
+      const handle = spawn(() => {
+        const start = Date.now()
+        while (Date.now() - start < 5000) { /* busy */ }
+        return 'done'
+      }, { ctx })
+
+      // Cancel both ways simultaneously
+      handle.cancel()
+      ctxCancel()
+
+      await expect(handle.result).rejects.toThrow('Task was cancelled')
+    })
+
+    it('withTimeout of 0 rejects immediately', async () => {
+      const [ctx] = withTimeout(background(), 0)
+      const { result } = spawn(() => 42, { ctx })
+      await expect(result).rejects.toThrow('cancelled')
     })
   })
 })

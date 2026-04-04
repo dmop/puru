@@ -1,22 +1,31 @@
-export { spawn } from './spawn.js'
-export { chan } from './channel.js'
-export type { Channel, SendOnly, RecvOnly } from './channel.js'
-export { WaitGroup } from './waitgroup.js'
-export { ErrGroup } from './errgroup.js'
-export { Mutex, RWMutex } from './mutex.js'
-export { Cond } from './cond.js'
-export { Once } from './once.js'
-export { select } from './select.js'
-export type { SelectOptions } from './select.js'
-export { after } from './after.js'
-export { Ticker, ticker } from './ticker.js'
-export { Timer } from './timer.js'
-export { task } from './registry.js'
-export { background, withCancel, withTimeout, withDeadline, withValue, CancelledError, DeadlineExceededError } from './context.js'
-export type { Context, CancelFunc, ContextError } from './context.js'
-export { configure } from './configure.js'
-export { stats, resize, shutdown } from './pool.js'
-export type { PoolStats } from './pool.js'
-export { detectRuntime, detectCapability } from './runtime.js'
-export type { Runtime, Capability } from './runtime.js'
-export type { SpawnResult, PuruConfig } from './types.js'
+export { spawn } from "./spawn.js";
+export { chan } from "./channel.js";
+export type { Channel, SendOnly, RecvOnly } from "./channel.js";
+export { WaitGroup } from "./waitgroup.js";
+export { ErrGroup } from "./errgroup.js";
+export { Mutex, RWMutex } from "./mutex.js";
+export { Semaphore } from "./semaphore.js";
+export { Cond } from "./cond.js";
+export { Once } from "./once.js";
+export { select } from "./select.js";
+export type { SelectOptions } from "./select.js";
+export { after } from "./after.js";
+export { Ticker, ticker } from "./ticker.js";
+export { Timer } from "./timer.js";
+export { task } from "./registry.js";
+export {
+  background,
+  withCancel,
+  withTimeout,
+  withDeadline,
+  withValue,
+  CancelledError,
+  DeadlineExceededError,
+} from "./context.js";
+export type { Context, CancelFunc, ContextError } from "./context.js";
+export { configure } from "./configure.js";
+export { stats, resize, shutdown } from "./pool.js";
+export type { PoolStats } from "./pool.js";
+export { detectRuntime, detectCapability } from "./runtime.js";
+export type { Runtime, Capability } from "./runtime.js";
+export type { SpawnResult, PuruConfig } from "./types.js";

@@ -77,17 +77,25 @@ function __buildChannelProxies(channels) {
   return proxies;
 }
 
-function __execFn(fnStr, channels) {
-  if (channels) {
-    const __ch = __buildChannelProxies(channels);
-    const fn = new Function('__ch', 'return (' + fnStr + ')(__ch)');
-    return fn(__ch);
-  } else {
-    const fn = new Function('return (' + fnStr + ')()');
-    return fn();
+const __fnCache = new Map();
+const __FN_CACHE_MAX = 1000;
+
+function __execFn(fnStr, channels, args) {
+  let parsedFn = __fnCache.get(fnStr);
+  if (!parsedFn) {
+    parsedFn = (new Function('return (' + fnStr + ')'))();
+    if (__fnCache.size >= __FN_CACHE_MAX) __fnCache.delete(__fnCache.keys().next().value);
+    __fnCache.set(fnStr, parsedFn);
   }
+  if (args) {
+    return parsedFn(...args);
+  }
+  if (channels) {
+    return parsedFn(__buildChannelProxies(channels));
+  }
+  return parsedFn();
 }
-`
+`;
 
 /** Bootstrap code for Node.js workers (eval: true, CJS context) */
 export const NODE_BOOTSTRAP_CODE = `
@@ -113,7 +121,7 @@ parentPort.on('message', async (msg) => {
           return;
         }
         try {
-          const result = await __execFn(msg.fnStr, msg.channels);
+          const result = await __execFn(msg.fnStr, msg.channels, msg.args);
           if (!cancelledTasks.has(msg.taskId)) {
             parentPort.postMessage({ type: 'result', taskId: msg.taskId, value: result });
           }
@@ -132,7 +140,7 @@ parentPort.on('message', async (msg) => {
       })();
     } else {
       try {
-        const result = await __execFn(msg.fnStr, msg.channels);
+        const result = await __execFn(msg.fnStr, msg.channels, msg.args);
         parentPort.postMessage({ type: 'result', taskId: msg.taskId, value: result });
       } catch (error) {
         parentPort.postMessage({
@@ -151,7 +159,7 @@ parentPort.on('message', async (msg) => {
 });
 
 parentPort.postMessage({ type: 'ready' });
-`
+`;
 
 /** Bootstrap code for Bun/Web Workers (file-based, Web Worker API) */
 export const WEB_BOOTSTRAP_CODE = `
@@ -175,7 +183,7 @@ self.onmessage = async (event) => {
           return;
         }
         try {
-          const result = await __execFn(msg.fnStr, msg.channels);
+          const result = await __execFn(msg.fnStr, msg.channels, msg.args);
           if (!cancelledTasks.has(msg.taskId)) {
             self.postMessage({ type: 'result', taskId: msg.taskId, value: result });
           }
@@ -194,7 +202,7 @@ self.onmessage = async (event) => {
       })();
     } else {
       try {
-        const result = await __execFn(msg.fnStr, msg.channels);
+        const result = await __execFn(msg.fnStr, msg.channels, msg.args);
         self.postMessage({ type: 'result', taskId: msg.taskId, value: result });
       } catch (error) {
         self.postMessage({
@@ -213,7 +221,7 @@ self.onmessage = async (event) => {
 };
 
 self.postMessage({ type: 'ready' });
-`
+`;
 
 /** @deprecated Use NODE_BOOTSTRAP_CODE instead */
-export const BOOTSTRAP_CODE = NODE_BOOTSTRAP_CODE
+export const BOOTSTRAP_CODE = NODE_BOOTSTRAP_CODE;

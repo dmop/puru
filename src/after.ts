@@ -17,5 +17,5 @@
  * console.log('500ms later')
  */
 export function after(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

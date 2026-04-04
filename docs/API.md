@@ -160,7 +160,7 @@ cancel() // cleanup
 
 ## `ErrGroup`
 
-Like `WaitGroup`, but cancels the remaining tasks on the first failure.
+Like `WaitGroup`, but cancels all remaining tasks on the first failure — in-flight workers are terminated and queued tasks are discarded.
 
 Accepts an optional `Context`. Supports `setLimit()` to throttle concurrent tasks.
 

@@ -24,27 +24,27 @@
  * await t.channel // fires 300ms after last input
  */
 export class Timer {
-  private timer: ReturnType<typeof setTimeout> | null = null
-  private _stopped = false
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private _stopped = false;
 
   /** Promise that resolves when the timer fires. Replaced on `reset()`. */
-  channel: Promise<void>
+  channel: Promise<void>;
 
   constructor(ms: number) {
-    this.channel = this.schedule(ms)
+    this.channel = this.schedule(ms);
   }
 
   private schedule(ms: number): Promise<void> {
     return new Promise<void>((resolve) => {
       this.timer = setTimeout(() => {
-        this._stopped = true
-        this.timer = null
-        resolve()
-      }, ms)
-      if (typeof this.timer === 'object' && 'unref' in this.timer) {
-        this.timer.unref()
+        this._stopped = true;
+        this.timer = null;
+        resolve();
+      }, ms);
+      if (typeof this.timer === "object" && "unref" in this.timer) {
+        this.timer.unref();
       }
-    })
+    });
   }
 
   /**
@@ -54,11 +54,11 @@ export class Timer {
    * After stopping, the current `channel` promise will never resolve.
    */
   stop(): boolean {
-    if (this.timer === null) return false
-    clearTimeout(this.timer)
-    this.timer = null
-    this._stopped = true
-    return true
+    if (this.timer === null) return false;
+    clearTimeout(this.timer);
+    this.timer = null;
+    this._stopped = true;
+    return true;
   }
 
   /**
@@ -66,13 +66,13 @@ export class Timer {
    * If the timer was pending, it is stopped first. Creates a new `channel` promise.
    */
   reset(ms: number): void {
-    this.stop()
-    this._stopped = false
-    this.channel = this.schedule(ms)
+    this.stop();
+    this._stopped = false;
+    this.channel = this.schedule(ms);
   }
 
   /** Whether the timer has fired or been stopped. */
   get stopped(): boolean {
-    return this._stopped
+    return this._stopped;
   }
 }

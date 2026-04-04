@@ -3,9 +3,10 @@
 [![npm version](https://img.shields.io/npm/v/@dmop/puru)](https://www.npmjs.com/package/@dmop/puru)
 [![npm downloads](https://img.shields.io/npm/dm/@dmop/puru)](https://www.npmjs.com/package/@dmop/puru)
 [![bundle size](https://img.shields.io/bundlephobia/minzip/@dmop/puru)](https://bundlephobia.com/package/@dmop/puru)
+[![zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](https://www.npmjs.com/package/@dmop/puru?activeTab=dependencies)
 [![license](https://img.shields.io/npm/l/@dmop/puru)](LICENSE)
 
-**Go-style concurrency for JavaScript.** Worker threads with channels, WaitGroup, select, and context — no worker files, no boilerplate.
+**Go-style concurrency for JavaScript.** Worker threads with channels, WaitGroup, select, and context — zero dependencies, no worker files, no boilerplate.
 
 ```ts
 import { spawn } from '@dmop/puru'
@@ -68,8 +69,12 @@ One file. No message plumbing. Automatic pooling.
 
 ## Install
 
+Zero runtime dependencies — just the library itself.
+
 ```bash
 npm install @dmop/puru
+# or
+bun add @dmop/puru
 ```
 
 ## Quick Start

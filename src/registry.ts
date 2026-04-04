@@ -1,8 +1,8 @@
-import { getPool } from './pool.js'
-import { serializeFunction } from './serialize.js'
-import type { JsonValue, StructuredCloneValue, Task, TaskError } from './types.js'
+import { getPool } from "./pool.js";
+import { serializeFunction } from "./serialize.js";
+import type { JsonValue, StructuredCloneValue, Task, TaskError } from "./types.js";
 
-let taskCounter = 0
+let taskCounter = 0;
 
 /**
  * Define a reusable task that runs in a worker thread.
@@ -28,56 +28,55 @@ let taskCounter = 0
 export function task<TArgs extends JsonValue[], TReturn extends StructuredCloneValue>(
   fn: (...args: TArgs) => TReturn | Promise<TReturn>,
 ): (...args: TArgs) => Promise<TReturn> {
-  const fnStr = serializeFunction(fn)
+  const fnStr = serializeFunction(fn);
   return (...args: TArgs): Promise<TReturn> => {
-    const serializedArgs = args.map((a) => {
-      const json = JSON.stringify(a)
-      if (json === undefined) {
+    for (const a of args) {
+      if (JSON.stringify(a) === undefined) {
         throw new TypeError(
           `Argument of type ${typeof a} is not JSON-serializable. ` +
-            'task() args must be JSON-serializable (no undefined, functions, symbols, or BigInt).',
-        )
+            "task() args must be JSON-serializable (no undefined, functions, symbols, or BigInt).",
+        );
       }
-      return json
-    })
-    const wrapperStr = `() => (${fnStr})(${serializedArgs.join(', ')})`
+    }
 
-    const taskId = `task_${++taskCounter}`
-    const spawnStack = new Error().stack
+    const taskId = `task_${++taskCounter}`;
+    const spawnError = new Error();
 
-    let resolveFn!: (value: TReturn) => void
-    let rejectFn!: (reason: TaskError) => void
+    let resolveFn!: (value: TReturn) => void;
+    let rejectFn!: (reason: TaskError) => void;
 
     const result = new Promise<TReturn>((resolve, reject) => {
-      resolveFn = resolve
-      rejectFn = reject
-    })
+      resolveFn = resolve;
+      rejectFn = reject;
+    });
 
     const taskObj: Task = {
       id: taskId,
-      fnStr: wrapperStr,
-      priority: 'normal',
+      fnStr,
+      args,
+      priority: "normal",
       concurrent: false,
       resolve: (value) => resolveFn(value as TReturn),
       reject: (reason) => {
-        if (reason instanceof Error && spawnStack) {
-          const callerLine = spawnStack.split('\n').slice(2).join('\n')
-          reason.stack =
-            (reason.stack ?? reason.message) +
-            '\n    --- spawned at ---\n' +
-            callerLine
+        if (reason instanceof Error) {
+          const spawnStack = spawnError.stack;
+          if (spawnStack) {
+            const callerLine = spawnStack.split("\n").slice(2).join("\n");
+            reason.stack =
+              (reason.stack ?? reason.message) + "\n    --- spawned at ---\n" + callerLine;
+          }
         }
-        rejectFn(reason)
+        rejectFn(reason);
       },
-    }
+    };
 
-    getPool().submit(taskObj)
+    getPool().submit(taskObj);
 
-    return result
-  }
+    return result;
+  };
 }
 
 /** @internal For testing only */
 export function resetTaskCounter(): void {
-  taskCounter = 0
+  taskCounter = 0;
 }

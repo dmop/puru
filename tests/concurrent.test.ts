@@ -198,6 +198,70 @@ describe('concurrent (shared thread pool)', () => {
     expect(lowResult).toBe('low')
   })
 
+  it('multiple concurrent tasks can fail independently on same worker', async () => {
+    resetConfig()
+    configure({ maxThreads: 1, idleTimeout: 1000, concurrency: 64 })
+
+    const results = await Promise.allSettled([
+      spawn(() => { throw new Error('c-err1') }, { concurrent: true }).result,
+      spawn(() => 'c-ok', { concurrent: true }).result,
+      spawn(() => { throw new Error('c-err2') }, { concurrent: true }).result,
+      spawn(() => 'c-ok2', { concurrent: true }).result,
+    ])
+
+    expect(results[0].status).toBe('rejected')
+    expect(results[1]).toEqual({ status: 'fulfilled', value: 'c-ok' })
+    expect(results[2].status).toBe('rejected')
+    expect(results[3]).toEqual({ status: 'fulfilled', value: 'c-ok2' })
+  })
+
+  it('cancel + error on different concurrent tasks on same worker', async () => {
+    resetConfig()
+    configure({ maxThreads: 1, idleTimeout: 1000, concurrency: 64 })
+
+    const willFail = spawn(() => { throw new Error('concurrent boom') }, { concurrent: true })
+    const willCancel = spawn(async () => {
+      await new Promise(r => setTimeout(r, 200))
+      return 'cancelled'
+    }, { concurrent: true })
+    const willSucceed = spawn(async () => {
+      await new Promise(r => setTimeout(r, 50))
+      return 'survived'
+    }, { concurrent: true })
+
+    // Attach rejection handlers immediately to avoid unhandled rejection
+    const failResult = willFail.result.catch((e: Error) => e)
+    const cancelResult = willCancel.result.catch((e: Error) => e)
+
+    willCancel.cancel()
+
+    const failErr = await failResult
+    expect(failErr).toBeInstanceOf(Error)
+    expect((failErr as Error).message).toContain('concurrent boom')
+
+    const cancelErr = await cancelResult
+    expect(cancelErr).toBeInstanceOf(DOMException)
+    expect((cancelErr as DOMException).message).toContain('Task was cancelled')
+
+    expect(await willSucceed.result).toBe('survived')
+  })
+
+  it('worker recovers after concurrent task errors', async () => {
+    resetConfig()
+    configure({ maxThreads: 1, idleTimeout: 1000, concurrency: 64 })
+
+    // Fail several times
+    for (let i = 0; i < 3; i++) {
+      await expect(
+        spawn(() => { throw new Error('repeat fail') }, { concurrent: true }).result,
+      ).rejects.toThrow('repeat fail')
+    }
+
+    // Worker should still be alive
+    const { result } = spawn(() => 'still alive', { concurrent: true })
+    expect(await result).toBe('still alive')
+  })
+
   it('WaitGroup works with concurrent option', async () => {
     const { WaitGroup } = await import('../src/waitgroup.js')
 

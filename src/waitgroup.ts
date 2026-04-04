@@ -1,9 +1,9 @@
-import { spawn as spawnTask } from './spawn.js'
-import type { ChannelValue, SpawnResult, StructuredCloneValue } from './types.js'
-import type { Channel } from './channel.js'
-import type { Context } from './context.js'
+import { spawn as spawnTask } from "./spawn.js";
+import type { ChannelValue, SpawnResult, StructuredCloneValue } from "./types.js";
+import type { Channel } from "./channel.js";
+import type { Context } from "./context.js";
 
-type SpawnChannels = Record<string, Channel<ChannelValue>>
+type SpawnChannels = Record<string, Channel<ChannelValue>>;
 
 /**
  * Structured concurrency: spawn multiple tasks and wait for all to complete.
@@ -36,17 +36,17 @@ type SpawnChannels = Record<string, Channel<ChannelValue>>
  * }
  */
 export class WaitGroup<T extends StructuredCloneValue = StructuredCloneValue> {
-  private tasks: SpawnResult<T>[] = []
-  private controller = new AbortController()
-  private ctx?: Context
+  private tasks: SpawnResult<T>[] = [];
+  private controller = new AbortController();
+  private ctx?: Context;
 
   constructor(ctx?: Context) {
-    this.ctx = ctx
+    this.ctx = ctx;
     if (ctx) {
       if (ctx.signal.aborted) {
-        this.controller.abort()
+        this.controller.abort();
       } else {
-        ctx.signal.addEventListener('abort', () => this.cancel(), { once: true })
+        ctx.signal.addEventListener("abort", () => this.cancel(), { once: true });
       }
     }
   }
@@ -56,7 +56,7 @@ export class WaitGroup<T extends StructuredCloneValue = StructuredCloneValue> {
    * Pass it into spawned functions so they can stop early when `cancel()` is called.
    */
   get signal(): AbortSignal {
-    return this.controller.signal
+    return this.controller.signal;
   }
 
   /**
@@ -69,10 +69,10 @@ export class WaitGroup<T extends StructuredCloneValue = StructuredCloneValue> {
     opts?: { concurrent?: boolean; channels?: TChannels },
   ): void {
     if (this.controller.signal.aborted) {
-      throw new Error('WaitGroup has been cancelled')
+      throw new Error("WaitGroup has been cancelled");
     }
-    const handle = spawnTask<T, TChannels>(fn, { ...opts, ctx: this.ctx })
-    this.tasks.push(handle)
+    const handle = spawnTask<T, TChannels>(fn, { ...opts, ctx: this.ctx });
+    this.tasks.push(handle);
   }
 
   /**
@@ -80,7 +80,7 @@ export class WaitGroup<T extends StructuredCloneValue = StructuredCloneValue> {
    * Rejects as soon as any task throws.
    */
   async wait(): Promise<T[]> {
-    return Promise.all(this.tasks.map((t) => t.result))
+    return Promise.all(this.tasks.map((t) => t.result));
   }
 
   /**
@@ -88,7 +88,7 @@ export class WaitGroup<T extends StructuredCloneValue = StructuredCloneValue> {
    * Never rejects — inspect each `PromiseSettledResult` to handle failures individually.
    */
   async waitSettled(): Promise<PromiseSettledResult<T>[]> {
-    return Promise.allSettled(this.tasks.map((t) => t.result))
+    return Promise.allSettled(this.tasks.map((t) => t.result));
   }
 
   /**
@@ -96,9 +96,9 @@ export class WaitGroup<T extends StructuredCloneValue = StructuredCloneValue> {
    * Already-settled tasks are unaffected.
    */
   cancel(): void {
-    this.controller.abort()
+    this.controller.abort();
     for (const task of this.tasks) {
-      task.cancel()
+      task.cancel();
     }
   }
 }

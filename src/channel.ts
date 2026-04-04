@@ -1,10 +1,10 @@
-import type { ChannelValue } from './types.js'
+import type { ChannelValue } from "./types.js";
 
 // Internal sentinel used to signal channel closure.
 // Using a symbol instead of null means null is a valid value to send through a channel
 // at the implementation level, and avoids silent failures if someone attempts to send null.
 // The public recv() API still returns null for a closed channel — the symbol is not leaked.
-const CLOSED = Symbol('puru.channel.closed')
+const CLOSED = Symbol("puru.channel.closed");
 
 /**
  * A Go-style channel for communicating between async tasks and across worker threads.
@@ -27,183 +27,202 @@ const CLOSED = Symbol('puru.channel.closed')
  * }
  */
 export interface Channel<T extends ChannelValue> {
-  send(value: T): Promise<void>
+  send(value: T): Promise<void>;
   /** Resolves with the next value, or `null` if the channel is closed. */
-  recv(): Promise<T | null>
-  close(): void
+  recv(): Promise<T | null>;
+  close(): void;
   /** Number of values currently buffered. Like Go's `len(ch)`. */
-  readonly len: number
+  readonly len: number;
   /** Buffer capacity. Like Go's `cap(ch)`. */
-  readonly cap: number
+  readonly cap: number;
   /** Returns a send-only view of this channel. Like Go's `chan<- T`. */
-  sendOnly(): SendOnly<T>
+  sendOnly(): SendOnly<T>;
   /** Returns a receive-only view of this channel. Like Go's `<-chan T`. */
-  recvOnly(): RecvOnly<T>
-  [Symbol.asyncIterator](): AsyncIterator<T>
+  recvOnly(): RecvOnly<T>;
+  [Symbol.asyncIterator](): AsyncIterator<T>;
 }
 
 /** Send-only view of a channel. Like Go's `chan<- T`. */
 export interface SendOnly<T extends ChannelValue> {
-  send(value: T): Promise<void>
-  close(): void
-  readonly len: number
-  readonly cap: number
+  send(value: T): Promise<void>;
+  close(): void;
+  readonly len: number;
+  readonly cap: number;
 }
 
 /** Receive-only view of a channel. Like Go's `<-chan T`. */
 export interface RecvOnly<T extends ChannelValue> {
-  recv(): Promise<T | null>
-  readonly len: number
-  readonly cap: number
-  [Symbol.asyncIterator](): AsyncIterator<T>
+  recv(): Promise<T | null>;
+  readonly len: number;
+  readonly cap: number;
+  [Symbol.asyncIterator](): AsyncIterator<T>;
 }
 
 interface ChannelHandle<T extends ChannelValue> extends Channel<T> {
-  readonly _id: string
+  readonly _id: string;
 }
 
 interface PendingRecv<T> {
-  resolve: (value: T | typeof CLOSED) => void
+  resolve: (value: T | typeof CLOSED) => void;
 }
 
 interface PendingSend<T> {
-  value: T
-  resolve: () => void
-  reject: (reason: Error) => void
+  value: T;
+  resolve: () => void;
+  reject: (reason: Error) => void;
 }
 
-let channelIdCounter = 0
-const channelRegistry = new Map<string, ChannelHandle<ChannelValue>>()
+let channelIdCounter = 0;
+const channelRegistry = new Map<string, ChannelHandle<ChannelValue>>();
 
-class ChannelImpl<T extends ChannelValue> implements ChannelHandle<T> { // constraint: can't create channels of nullable type
+class ChannelImpl<T extends ChannelValue> implements ChannelHandle<T> {
+  // constraint: can't create channels of nullable type
   /** @internal */
-  readonly _id: string
-  private buffer: T[] = []
-  private capacity: number
-  private closed = false
-  private recvQueue: PendingRecv<T>[] = []
-  private sendQueue: PendingSend<T>[] = []
+  readonly _id: string;
+  /** @internal — true once the channel ID has been sent to a worker */
+  _shared = false;
+  private buffer: T[] = [];
+  private capacity: number;
+  private closed = false;
+  private recvQueue: PendingRecv<T>[] = [];
+  private sendQueue: PendingSend<T>[] = [];
 
   constructor(capacity: number) {
-    this._id = `__ch_${++channelIdCounter}`
-    this.capacity = capacity
-    channelRegistry.set(this._id, this as ChannelHandle<ChannelValue>)
+    this._id = `__ch_${++channelIdCounter}`;
+    this.capacity = capacity;
+    channelRegistry.set(this._id, this as ChannelHandle<ChannelValue>);
   }
 
   get len(): number {
-    return this.buffer.length
+    return this.buffer.length;
   }
 
   get cap(): number {
-    return this.capacity
+    return this.capacity;
   }
 
   send(value: T): Promise<void> {
     if (this.closed) {
-      return Promise.reject(new Error('send on closed channel'))
+      return Promise.reject(new Error("send on closed channel"));
     }
 
     // If there's a waiting receiver, deliver directly
-    const receiver = this.recvQueue.shift()
+    const receiver = this.recvQueue.shift();
     if (receiver) {
-      receiver.resolve(value)
-      return Promise.resolve()
+      receiver.resolve(value);
+      return Promise.resolve();
     }
 
     // If buffer has room, buffer it
     if (this.buffer.length < this.capacity) {
-      this.buffer.push(value)
-      return Promise.resolve()
+      this.buffer.push(value);
+      return Promise.resolve();
     }
 
     // Block until a receiver is ready
     return new Promise<void>((resolve, reject) => {
-      this.sendQueue.push({ value, resolve, reject })
-    })
+      this.sendQueue.push({ value, resolve, reject });
+    });
   }
 
   recv(): Promise<T | null> {
     // If buffer has a value, take it and unblock a pending sender
     if (this.buffer.length > 0) {
-      const value = this.buffer.shift()!
-      const sender = this.sendQueue.shift()
+      const value = this.buffer.shift()!;
+      const sender = this.sendQueue.shift();
       if (sender) {
-        this.buffer.push(sender.value)
-        sender.resolve()
+        this.buffer.push(sender.value);
+        sender.resolve();
       }
-      return Promise.resolve(value)
+      this.maybeUnregister();
+      return Promise.resolve(value);
     }
 
     // If there's a pending sender (unbuffered or buffer was empty), take directly
-    const sender = this.sendQueue.shift()
+    const sender = this.sendQueue.shift();
     if (sender) {
-      sender.resolve()
-      return Promise.resolve(sender.value)
+      sender.resolve();
+      return Promise.resolve(sender.value);
     }
 
     // If closed, return null
     if (this.closed) {
-      return Promise.resolve(null)
+      this.maybeUnregister();
+      return Promise.resolve(null);
     }
 
     // Block until a sender provides a value or channel closes
     return new Promise<T | null>((resolve) => {
       this.recvQueue.push({
         resolve: (v) => resolve(v === CLOSED ? null : (v as T)),
-      })
-    })
+      });
+    });
   }
 
   close(): void {
-    if (this.closed) return
-    this.closed = true
+    if (this.closed) return;
+    this.closed = true;
 
     // Resolve all pending receivers with the CLOSED sentinel (converted to null at the public boundary)
     for (const receiver of this.recvQueue) {
-      receiver.resolve(CLOSED)
+      receiver.resolve(CLOSED);
     }
-    this.recvQueue = []
+    this.recvQueue = [];
 
     // Reject all pending senders
     for (const sender of this.sendQueue) {
-      sender.reject(new Error('send on closed channel'))
+      sender.reject(new Error("send on closed channel"));
     }
-    this.sendQueue = []
+    this.sendQueue = [];
+  }
+
+  private maybeUnregister(): void {
+    if (!this._shared && this.closed && this.buffer.length === 0 && this.recvQueue.length === 0) {
+      channelRegistry.delete(this._id);
+    }
   }
 
   sendOnly(): SendOnly<T> {
-    const send = (value: T) => this.send(value)
-    const close = () => this.close()
-    const getLen = () => this.len
-    const getCap = () => this.cap
+    const send = (value: T) => this.send(value);
+    const close = () => this.close();
+    const getLen = () => this.len;
+    const getCap = () => this.cap;
     return {
       send,
       close,
-      get len() { return getLen() },
-      get cap() { return getCap() },
-    }
+      get len() {
+        return getLen();
+      },
+      get cap() {
+        return getCap();
+      },
+    };
   }
 
   recvOnly(): RecvOnly<T> {
-    const recv = () => this.recv()
-    const getLen = () => this.len
-    const getCap = () => this.cap
-    const getIter = () => this[Symbol.asyncIterator]()
+    const recv = () => this.recv();
+    const getLen = () => this.len;
+    const getCap = () => this.cap;
+    const getIter = () => this[Symbol.asyncIterator]();
     return {
       recv,
-      get len() { return getLen() },
-      get cap() { return getCap() },
-      [Symbol.asyncIterator]() {
-        return getIter()
+      get len() {
+        return getLen();
       },
-    }
+      get cap() {
+        return getCap();
+      },
+      [Symbol.asyncIterator]() {
+        return getIter();
+      },
+    };
   }
 
   async *[Symbol.asyncIterator](): AsyncIterator<T> {
     while (true) {
-      const value = await this.recv()
-      if (value === null) return
-      yield value
+      const value = await this.recv();
+      if (value === null) return;
+      yield value;
     }
   }
 }
@@ -238,23 +257,25 @@ class ChannelImpl<T extends ChannelValue> implements ChannelHandle<T> { // const
  */
 export function chan<T extends ChannelValue>(capacity: number = 0): Channel<T> {
   if (capacity < 0 || !Number.isInteger(capacity)) {
-    throw new RangeError('Channel capacity must be a non-negative integer')
+    throw new RangeError("Channel capacity must be a non-negative integer");
   }
-  return new ChannelImpl<T>(capacity)
+  return new ChannelImpl<T>(capacity);
 }
 
 /** @internal */
 export function getChannelById(id: string): ChannelHandle<ChannelValue> | undefined {
-  return channelRegistry.get(id)
+  return channelRegistry.get(id);
 }
 
 /** @internal */
 export function getChannelId<T extends ChannelValue>(channel: Channel<T>): string {
-  return (channel as ChannelHandle<T>)._id
+  const impl = channel as ChannelImpl<T>;
+  impl._shared = true;
+  return impl._id;
 }
 
 /** @internal */
 export function resetChannelRegistry(): void {
-  channelRegistry.clear()
-  channelIdCounter = 0
+  channelRegistry.clear();
+  channelIdCounter = 0;
 }

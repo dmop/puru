@@ -1,6 +1,6 @@
 # puru — Guide for AI Assistants
 
-puru is a thread pool library for JavaScript with Go-style concurrency primitives (channels, WaitGroup, ErrGroup, select, context, Mutex, RWMutex, Cond, Timer). It runs functions off the main thread with no worker files and no boilerplate.
+puru is a zero-dependency thread pool library for JavaScript with Go-style concurrency primitives (channels, WaitGroup, ErrGroup, select, context, Mutex, RWMutex, Cond, Timer). It runs functions off the main thread with no worker files and no boilerplate.
 
 Full API reference: https://raw.githubusercontent.com/dmop/puru/main/llms-full.txt
 
@@ -117,7 +117,7 @@ const eg = new ErrGroup()
 eg.spawn(() => fetch('https://api.example.com/users/1').then((r) => r.json()), { concurrent: true })
 eg.spawn(() => fetch('https://api.example.com/users/1/orders').then((r) => r.json()), { concurrent: true })
 
-const [user, orders] = await eg.wait() // throws on first error, cancels the rest
+const [user, orders] = await eg.wait() // throws on first error, terminates remaining workers
 ```
 
 ### ErrGroup with concurrency limit

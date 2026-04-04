@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- `ErrGroup.cancel()` now actually cancels in-flight worker tasks — previously the cancel handle was discarded, making cancellation a no-op
+- `ErrGroup` queued tasks (gated by `setLimit`) are now prevented from executing after cancellation
+- Channels used only on the main thread are automatically removed from the internal registry after close + drain, preventing memory buildup
+- Worker function cache now evicts the oldest entry (FIFO) instead of clearing all 1000 entries at once, avoiding a reparse spike at the cache boundary
+
 ### Added
 
 - `spawn()` now accepts `{ ctx }` option — tasks auto-cancel when the context is cancelled

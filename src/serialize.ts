@@ -1,52 +1,59 @@
-const NATIVE_CODE_RE = /\[native code\]/
-const METHOD_RE = /^[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(/
+const NATIVE_CODE_RE = /\[native code\]/;
+const METHOD_RE = /^[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(/;
 
 // A valid serialized function must start with one of these patterns.
 // This guards against prototype pollution on Function.prototype.toString
 // returning arbitrary strings.
-const VALID_FN_START_RE = /^(?:function\b|async\s+function\b|async\s*\(|\(|[a-zA-Z_$][a-zA-Z0-9_$]*\s*=>|async\s+[a-zA-Z_$])/
+const VALID_FN_START_RE =
+  /^(?:function\b|async\s+function\b|async\s*\(|\(|[a-zA-Z_$][a-zA-Z0-9_$]*\s*=>|async\s+[a-zA-Z_$])/;
+
+const serializeCache = new WeakMap<Function, string>();
 
 export function serializeFunction(fn: Function): string {
-  if (typeof fn !== 'function') {
-    throw new TypeError('Expected a function')
+  if (typeof fn !== "function") {
+    throw new TypeError("Expected a function");
   }
 
-  const str = fn.toString()
+  const cached = serializeCache.get(fn);
+  if (cached) return cached;
 
-  if (typeof str !== 'string' || str.length === 0) {
+  const str = fn.toString();
+
+  if (typeof str !== "string" || str.length === 0) {
     throw new TypeError(
-      'Function serialization returned an invalid result. ' +
-      'This may indicate Function.prototype.toString has been tampered with.',
-    )
+      "Function serialization returned an invalid result. " +
+        "This may indicate Function.prototype.toString has been tampered with.",
+    );
   }
 
   if (NATIVE_CODE_RE.test(str)) {
     throw new TypeError(
-      'Native functions cannot be serialized. Use an arrow function wrapper instead.',
-    )
+      "Native functions cannot be serialized. Use an arrow function wrapper instead.",
+    );
   }
 
   if (!VALID_FN_START_RE.test(str)) {
     throw new TypeError(
-      'Function serialization produced unexpected output. ' +
-      'Only arrow functions, function expressions, and async functions are supported.',
-    )
+      "Function serialization produced unexpected output. " +
+        "Only arrow functions, function expressions, and async functions are supported.",
+    );
   }
 
   // Detect class methods like "method() { ... }" — not valid standalone functions
   if (
     METHOD_RE.test(str) &&
-    !str.startsWith('function') &&
-    !str.startsWith('async function') &&
-    !str.startsWith('async (') &&
-    !str.startsWith('async=') &&
-    !str.startsWith('(') &&
-    !str.includes('=>')
+    !str.startsWith("function") &&
+    !str.startsWith("async function") &&
+    !str.startsWith("async (") &&
+    !str.startsWith("async=") &&
+    !str.startsWith("(") &&
+    !str.includes("=>")
   ) {
     throw new TypeError(
-      'Class methods cannot be serialized. Use an arrow function wrapper instead.',
-    )
+      "Class methods cannot be serialized. Use an arrow function wrapper instead.",
+    );
   }
 
-  return str
+  serializeCache.set(fn, str);
+  return str;
 }

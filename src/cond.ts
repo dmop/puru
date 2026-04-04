@@ -1,4 +1,4 @@
-import { Mutex } from './mutex.js'
+import { Mutex } from "./mutex.js";
 
 /**
  * Condition variable for async coordination. Modeled after Go's `sync.Cond`.
@@ -38,11 +38,11 @@ import { Mutex } from './mutex.js'
  * mu.unlock()
  */
 export class Cond {
-  private mu: Mutex
-  private waiters: (() => void)[] = []
+  private mu: Mutex;
+  private waiters: (() => void)[] = [];
 
   constructor(mu: Mutex) {
-    this.mu = mu
+    this.mu = mu;
   }
 
   /**
@@ -53,29 +53,29 @@ export class Cond {
    */
   async wait(): Promise<void> {
     // Release the lock
-    this.mu.unlock()
+    this.mu.unlock();
 
     // Wait for signal
     await new Promise<void>((resolve) => {
-      this.waiters.push(resolve)
-    })
+      this.waiters.push(resolve);
+    });
 
     // Re-acquire the lock
-    await this.mu.lock()
+    await this.mu.lock();
   }
 
   /** Wake one waiting task (if any). */
   signal(): void {
-    const next = this.waiters.shift()
-    if (next) next()
+    const next = this.waiters.shift();
+    if (next) next();
   }
 
   /** Wake all waiting tasks. */
   broadcast(): void {
-    const queue = this.waiters
-    this.waiters = []
+    const queue = this.waiters;
+    this.waiters = [];
     for (const wake of queue) {
-      wake()
+      wake();
     }
   }
 }

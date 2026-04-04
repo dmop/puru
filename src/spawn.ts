@@ -1,11 +1,18 @@
-import { serializeFunction } from './serialize.js'
-import { getPool } from './pool.js'
-import type { Channel } from './channel.js'
-import { getChannelId } from './channel.js'
-import type { Context } from './context.js'
-import type { ChannelMap, ChannelValue, SpawnResult, StructuredCloneValue, Task, TaskError } from './types.js'
+import { serializeFunction } from "./serialize.js";
+import { getPool } from "./pool.js";
+import type { Channel } from "./channel.js";
+import { getChannelId } from "./channel.js";
+import type { Context } from "./context.js";
+import type {
+  ChannelMap,
+  ChannelValue,
+  SpawnResult,
+  StructuredCloneValue,
+  Task,
+  TaskError,
+} from "./types.js";
 
-let taskCounter = 0
+let taskCounter = 0;
 
 /**
  * Run a function in a worker thread. Returns a handle with the result promise and a cancel function.
@@ -48,107 +55,111 @@ let taskCounter = 0
  *   ch.close()
  * }, { channels: { ch } })
  */
-export function spawn<T extends StructuredCloneValue, TChannels extends Record<string, Channel<ChannelValue>> = Record<never, never>>(
+export function spawn<
+  T extends StructuredCloneValue,
+  TChannels extends Record<string, Channel<ChannelValue>> = Record<never, never>,
+>(
   fn: (() => T | Promise<T>) | ((channels: TChannels) => T | Promise<T>),
   opts?: {
-    priority?: 'low' | 'normal' | 'high'
-    concurrent?: boolean
-    channels?: TChannels
-    ctx?: Context
+    priority?: "low" | "normal" | "high";
+    concurrent?: boolean;
+    channels?: TChannels;
+    ctx?: Context;
   },
 ): SpawnResult<T> {
-  const fnStr = serializeFunction(fn)
-  const taskId = String(++taskCounter)
+  const fnStr = serializeFunction(fn);
+  const taskId = String(++taskCounter);
 
-  // Capture the call site stack for better error reporting
-  const spawnStack = new Error().stack
+  // Capture the call site for better error reporting.
+  // Creating the Error is cheap; accessing .stack (which triggers V8's
+  // stack formatting) is deferred to the reject path so the happy path
+  // pays no cost.
+  const spawnError = new Error();
 
-  let resolveFn!: (value: T) => void
-  let rejectFn!: (reason: TaskError) => void
-  let settled = false
+  let resolveFn!: (value: T) => void;
+  let rejectFn!: (reason: TaskError) => void;
+  let settled = false;
 
   const result = new Promise<T>((resolve, reject) => {
-    resolveFn = resolve
-    rejectFn = reject
-  })
+    resolveFn = resolve;
+    rejectFn = reject;
+  });
 
   // Extract channel IDs if channels are provided
-  let channelMap: ChannelMap | undefined
+  let channelMap: ChannelMap | undefined;
   if (opts?.channels) {
-    channelMap = {}
+    channelMap = {};
     for (const [name, ch] of Object.entries(opts.channels)) {
-      channelMap[name] = getChannelId(ch)
+      channelMap[name] = getChannelId(ch);
     }
   }
 
   const task: Task = {
     id: taskId,
     fnStr,
-    priority: opts?.priority ?? 'normal',
+    priority: opts?.priority ?? "normal",
     concurrent: opts?.concurrent ?? false,
     channels: channelMap,
     resolve: (value) => {
       if (!settled) {
-        settled = true
-        resolveFn(value as T)
+        settled = true;
+        resolveFn(value as T);
       }
     },
     reject: (reason) => {
       if (!settled) {
-        settled = true
+        settled = true;
         // Enrich worker errors with the spawn() call site
-        if (reason instanceof Error && spawnStack) {
-          const callerLine = spawnStack
-            .split('\n')
-            .slice(2)
-            .join('\n')
-          reason.stack =
-            (reason.stack ?? reason.message) +
-            '\n    --- spawned at ---\n' +
-            callerLine
+        if (reason instanceof Error) {
+          const spawnStack = spawnError.stack;
+          if (spawnStack) {
+            const callerLine = spawnStack.split("\n").slice(2).join("\n");
+            reason.stack =
+              (reason.stack ?? reason.message) + "\n    --- spawned at ---\n" + callerLine;
+          }
         }
-        rejectFn(reason)
+        rejectFn(reason);
       }
     },
-  }
+  };
 
   // Context integration: cancel the task when the context is cancelled
-  const ctx = opts?.ctx
+  const ctx = opts?.ctx;
   if (ctx) {
     if (ctx.signal.aborted) {
-      settled = true
-      rejectFn(ctx.err ?? new DOMException('Task was cancelled', 'AbortError'))
+      settled = true;
+      rejectFn(ctx.err ?? new DOMException("Task was cancelled", "AbortError"));
       return {
         result,
         cancel: () => {},
-      }
+      };
     }
   }
 
-  getPool().submit(task)
+  getPool().submit(task);
 
   const cancel = () => {
-    if (settled) return
-    settled = true
-    getPool().cancelTask(taskId)
-    rejectFn(new DOMException('Task was cancelled', 'AbortError'))
-  }
+    if (settled) return;
+    settled = true;
+    getPool().cancelTask(taskId);
+    rejectFn(new DOMException("Task was cancelled", "AbortError"));
+  };
 
   // Wire up context cancellation to task cancellation
   if (ctx) {
-    const onAbort = () => cancel()
-    ctx.signal.addEventListener('abort', onAbort, { once: true })
+    const onAbort = () => cancel();
+    ctx.signal.addEventListener("abort", onAbort, { once: true });
     // Clean up listener when task settles to avoid leaks
     result.then(
-      () => ctx.signal.removeEventListener('abort', onAbort),
-      () => ctx.signal.removeEventListener('abort', onAbort),
-    )
+      () => ctx.signal.removeEventListener("abort", onAbort),
+      () => ctx.signal.removeEventListener("abort", onAbort),
+    );
   }
 
-  return { result, cancel }
+  return { result, cancel };
 }
 
 /** @internal For testing only */
 export function resetTaskCounter(): void {
-  taskCounter = 0
+  taskCounter = 0;
 }

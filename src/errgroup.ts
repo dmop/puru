@@ -1,9 +1,9 @@
-import { spawn as spawnTask } from './spawn.js'
-import type { ChannelValue, SpawnResult, StructuredCloneValue, TaskError } from './types.js'
-import type { Channel } from './channel.js'
-import type { Context } from './context.js'
+import { spawn as spawnTask } from "./spawn.js";
+import type { ChannelValue, SpawnResult, StructuredCloneValue, TaskError } from "./types.js";
+import type { Channel } from "./channel.js";
+import type { Context } from "./context.js";
 
-type SpawnChannels = Record<string, Channel<ChannelValue>>
+type SpawnChannels = Record<string, Channel<ChannelValue>>;
 
 /**
  * Like `WaitGroup`, but cancels all remaining tasks on the first error.
@@ -35,28 +35,28 @@ type SpawnChannels = Record<string, Channel<ChannelValue>>
  * })
  */
 export class ErrGroup<T extends StructuredCloneValue = StructuredCloneValue> {
-  private tasks: SpawnResult<T>[] = []
-  private controller = new AbortController()
-  private firstError: TaskError | null = null
-  private hasError = false
-  private ctx?: Context
-  private limit = 0 // 0 = unlimited
-  private inFlight = 0
-  private waiting: (() => void)[] = []
+  private tasks: SpawnResult<T>[] = [];
+  private controller = new AbortController();
+  private firstError: TaskError | null = null;
+  private hasError = false;
+  private ctx?: Context;
+  private limit = 0; // 0 = unlimited
+  private inFlight = 0;
+  private waiting: (() => void)[] = [];
 
   constructor(ctx?: Context) {
-    this.ctx = ctx
+    this.ctx = ctx;
     if (ctx) {
       if (ctx.signal.aborted) {
-        this.controller.abort()
+        this.controller.abort();
       } else {
-        ctx.signal.addEventListener('abort', () => this.cancel(), { once: true })
+        ctx.signal.addEventListener("abort", () => this.cancel(), { once: true });
       }
     }
   }
 
   get signal(): AbortSignal {
-    return this.controller.signal
+    return this.controller.signal;
   }
 
   /**
@@ -66,12 +66,12 @@ export class ErrGroup<T extends StructuredCloneValue = StructuredCloneValue> {
    */
   setLimit(n: number): void {
     if (this.tasks.length > 0) {
-      throw new Error('SetLimit must be called before any spawn()')
+      throw new Error("SetLimit must be called before any spawn()");
     }
     if (n < 0 || !Number.isInteger(n)) {
-      throw new RangeError('Limit must be a non-negative integer')
+      throw new RangeError("Limit must be a non-negative integer");
     }
-    this.limit = n
+    this.limit = n;
   }
 
   spawn<TChannels extends SpawnChannels = Record<never, never>>(
@@ -79,66 +79,77 @@ export class ErrGroup<T extends StructuredCloneValue = StructuredCloneValue> {
     opts?: { concurrent?: boolean; channels?: TChannels },
   ): void {
     if (this.controller.signal.aborted) {
-      throw new Error('ErrGroup has been cancelled')
+      throw new Error("ErrGroup has been cancelled");
     }
 
     if (this.limit > 0 && this.inFlight >= this.limit) {
       // Queue the spawn until a slot opens
+      let innerCancel: () => void = () => {};
+      let cancelled = false;
+      const cancel = () => {
+        cancelled = true;
+        innerCancel();
+      };
       const result = new Promise<void>((resolve) => {
-        this.waiting.push(resolve)
-      }).then(() => this.doSpawn(fn, opts))
-      this.tasks.push({ result, cancel: () => {} })
-      return
+        this.waiting.push(resolve);
+      }).then(() => {
+        if (cancelled) throw new DOMException("Task was cancelled", "AbortError");
+        const handle = this.doSpawn(fn, opts);
+        innerCancel = handle.cancel;
+        return handle.result;
+      });
+      this.tasks.push({ result, cancel });
+      return;
     }
 
-    const result = this.doSpawn(fn, opts)
-    this.tasks.push({ result, cancel: () => {} })
+    const handle = this.doSpawn(fn, opts);
+    this.tasks.push(handle);
   }
 
   private doSpawn<TChannels extends SpawnChannels = Record<never, never>>(
     fn: (() => T | Promise<T>) | ((channels: TChannels) => T | Promise<T>),
     opts?: { concurrent?: boolean; channels?: TChannels },
-  ): Promise<T> {
-    this.inFlight++
-    const handle = spawnTask<T, TChannels>(fn, { ...opts, ctx: this.ctx })
+  ): SpawnResult<T> {
+    this.inFlight++;
+    const handle = spawnTask<T, TChannels>(fn, { ...opts, ctx: this.ctx });
 
     // When task settles, release the semaphore slot
     const onSettle = () => {
-      this.inFlight--
-      const next = this.waiting.shift()
-      if (next) next()
-    }
+      this.inFlight--;
+      const next = this.waiting.shift();
+      if (next) next();
+    };
 
     // Watch for errors and cancel all tasks on first failure
     handle.result.then(onSettle, (err) => {
-      onSettle()
+      onSettle();
       if (!this.hasError) {
-        this.hasError = true
-        this.firstError = err
-        this.cancel()
+        this.hasError = true;
+        this.firstError = err;
+        this.cancel();
       }
-    })
+    });
 
-    return handle.result
+    return handle;
   }
 
   async wait(): Promise<T[]> {
-    const settled = await Promise.allSettled(this.tasks.map((t) => t.result))
+    const settled = await Promise.allSettled(this.tasks.map((t) => t.result));
 
     if (this.hasError && this.firstError) {
-      throw this.firstError
+      throw this.firstError;
     }
 
     return settled.map((r) => {
-      if (r.status === 'fulfilled') return r.value
-      throw r.reason
-    })
+      if (r.status === "fulfilled") return r.value;
+      throw r.reason;
+    });
   }
 
   cancel(): void {
-    this.controller.abort()
+    this.controller.abort();
     for (const task of this.tasks) {
-      task.cancel()
+      task.cancel();
     }
   }
 }

@@ -2,7 +2,7 @@
 
 > A thread pool with Go-style concurrency primitives for JavaScript
 
-puru manages a pool of worker threads and provides a simple API to run functions off the main thread. No separate worker files, no manual message passing.
+puru manages a pool of worker threads and provides a simple API to run functions off the main thread. Zero runtime dependencies. No separate worker files, no manual message passing.
 
 Works on Node.js and Bun. Deno support coming soon.
 
@@ -169,7 +169,7 @@ cancel()
 
 ### ErrGroup
 
-Like WaitGroup, but cancels all remaining tasks on first error (modeled after Go's golang.org/x/sync/errgroup). Accepts optional Context. Supports setLimit() for concurrency throttling.
+Like WaitGroup, but cancels all remaining tasks on first error — in-flight workers are terminated and queued tasks are discarded (modeled after Go's golang.org/x/sync/errgroup). Accepts optional Context. Supports setLimit() for concurrency throttling.
 
 ```typescript
 const eg = new ErrGroup()

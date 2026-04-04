@@ -166,6 +166,51 @@ describe('WorkerPool', () => {
     await poolWithFakeWorker.drain()
   })
 
+  it('handles syntax error in fnStr', async () => {
+    const t1 = createTask('syn1', '() => { if ( }')  // malformed JS
+    pool.submit(t1.task)
+    await expect(t1.promise).rejects.toThrow('Unexpected')
+  })
+
+  it('handles fnStr that throws TypeError', async () => {
+    const t1 = createTask('te1', '() => { null.foo }')
+    pool.submit(t1.task)
+    await expect(t1.promise).rejects.toThrow('null')
+  })
+
+  it('handles async rejection in fnStr', async () => {
+    const t1 = createTask('ar1', 'async () => { throw new Error("async boom") }')
+    pool.submit(t1.task)
+    await expect(t1.promise).rejects.toThrow('async boom')
+  })
+
+  it('worker recovers after multiple sequential errors', async () => {
+    const pool1 = new WorkerPool(
+      { maxThreads: 1, strategy: 'fifo', idleTimeout: 500, adapter: 'node', concurrency: 64 },
+      new NodeWorkerAdapter(),
+    )
+
+    for (let i = 0; i < 5; i++) {
+      const t = createTask(`err${i}`, '() => { throw new Error("fail") }')
+      pool1.submit(t.task)
+      await expect(t.promise).rejects.toThrow('fail')
+    }
+
+    // Worker should still be alive and working
+    const ok = createTask('ok', '() => "alive"')
+    pool1.submit(ok.task)
+    expect(await ok.promise).toBe('alive')
+    await pool1.drain()
+  })
+
+  it('cancel a task that is not in any queue is a no-op', async () => {
+    pool.cancelTask('nonexistent-id')
+    // Should not throw — just silently do nothing
+    const t = createTask('1', '() => "ok"')
+    pool.submit(t.task)
+    expect(await t.promise).toBe('ok')
+  })
+
   it('rejects an exclusive task if the worker exits unexpectedly', async () => {
     const fakeWorker = createFakeWorker()
     const poolWithFakeWorker = new WorkerPool(

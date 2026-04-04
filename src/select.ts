@@ -1,8 +1,8 @@
-import type { StructuredCloneValue } from './types.js'
+import type { StructuredCloneValue } from "./types.js";
 
-type RecvCase<T = StructuredCloneValue> = [Promise<T>, (value: T) => void]
-type SendCase = [Promise<void>, () => void]
-type SelectCase<T = StructuredCloneValue> = RecvCase<T> | SendCase
+type RecvCase<T = StructuredCloneValue> = [Promise<T>, (value: T) => void];
+type SendCase = [Promise<void>, () => void];
+type SelectCase<T = StructuredCloneValue> = RecvCase<T> | SendCase;
 
 /**
  * Options for `select()`.
@@ -11,7 +11,7 @@ type SelectCase<T = StructuredCloneValue> = RecvCase<T> | SendCase
  * the default handler runs instead of waiting. This mirrors Go's `select { default: ... }`.
  */
 export interface SelectOptions {
-  default?: () => void
+  default?: () => void;
 }
 
 /**
@@ -60,80 +60,77 @@ export interface SelectOptions {
  *   [after(200), () => { response = { partial: true } }],
  * ])
  */
-export function select(
-  cases: SelectCase[],
-  opts?: SelectOptions,
-): Promise<void> {
+export function select(cases: SelectCase[], opts?: SelectOptions): Promise<void> {
   if (cases.length === 0) {
     if (opts?.default) {
-      opts.default()
+      opts.default();
     }
-    return Promise.resolve()
+    return Promise.resolve();
   }
 
   // Non-blocking: if default is provided, check if any promise is already settled
   if (opts?.default) {
     return new Promise<void>((resolve, reject) => {
-      let settled = false
+      let settled = false;
 
       // Check all promises for immediate resolution
       for (const [promise, handler] of cases) {
         Promise.resolve(promise).then(
           (value) => {
-            if (settled) return
-            settled = true
+            if (settled) return;
+            settled = true;
             try {
-              ;(handler as (value: unknown) => void)(value)
-              resolve()
+              (handler as (value: unknown) => void)(value);
+              resolve();
             } catch (err) {
-              reject(err)
+              reject(err);
             }
           },
           (err) => {
-            if (settled) return
-            settled = true
-            reject(err)
+            if (settled) return;
+            settled = true;
+            reject(err);
           },
-        )
+        );
       }
 
       // Schedule default on the next microtask — if no promise resolved synchronously,
       // default wins
       queueMicrotask(() => {
-        if (settled) return
-        settled = true
+        if (settled) return;
+        settled = true;
         try {
-          opts.default!()
-          resolve()
+          opts.default!();
+          resolve();
         } catch (err) {
-          reject(err)
+          reject(err);
         }
-      })
-    })
+      });
+    });
   }
 
   // Blocking: wait for the first promise to settle
   return new Promise<void>((resolve, reject) => {
-    let settled = false
+    let settled = false;
 
     cases.forEach(([promise, handler]) => {
       promise.then(
         (value) => {
-          if (settled) return
-          settled = true
+          if (settled) return;
+          settled = true;
           try {
-            ;(handler as (value: unknown) => void)(value)
-            resolve()
+            (handler as (value: unknown) => void)(value);
+            resolve();
           } catch (err) {
-            reject(err)
+            reject(err);
           }
         },
         (err) => {
-          if (settled) return
-          settled = true
-          reject(err)
+          if (settled) return;
+          settled = true;
+          reject(err);
         },
-      )
-    })
-  })
+      );
+    });
+  });
 }
