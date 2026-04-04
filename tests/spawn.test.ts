@@ -283,7 +283,7 @@ describe('spawn', () => {
     it('withTimeout of 0 rejects immediately', async () => {
       const [ctx] = withTimeout(background(), 0)
       const { result } = spawn(() => 42, { ctx })
-      await expect(result).rejects.toThrow('cancelled')
+      await expect(result).rejects.toThrow('context deadline exceeded')
     })
   })
 })
