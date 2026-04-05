@@ -1,1 +1,0 @@
-- [README quality bar](feedback_readme_quality.md) — docs should match production-grade OSS standards to convert senior engineers
