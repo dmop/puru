@@ -7,3 +7,4 @@ docs/api/
 .env.*
 .DS_Store
 *.log
+.claude/
