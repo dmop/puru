@@ -1,49 +1,82 @@
 # puru (プール)
 
-> A thread pool with Go-style concurrency primitives for JavaScript
+> Go-style concurrency primitives for JavaScript worker threads
 
-puru manages a pool of worker threads and provides a simple API to run functions off the main thread. Zero runtime dependencies. No separate worker files, no manual message passing.
+`puru` is a zero-dependency thread pool for JavaScript. It runs work off the main thread with inline worker functions, no worker files, and no manual message plumbing.
 
-Works on Node.js and Bun. Deno support coming soon.
+Supported runtimes:
+- Node.js >= 20
+- Bun
 
 ## Install
 
+```bash
 npm install @dmop/puru
+# or
 bun add @dmop/puru
+```
+
+## Best Fit
+
+Use `puru` when a user needs:
+- CPU-bound work off the main thread
+- Go-style channels, `WaitGroup`, `ErrGroup`, `select`, or `context`
+- worker threads without separate worker files
+- parallel pipelines or structured concurrency in Node.js or Bun
+
+Do not reach for `puru` first when:
+- plain `Promise.all()` is enough
+- the work is trivial and finishes in under ~5ms
+- the runtime has no real thread support
 
 ## Core API
 
-- spawn(fn, opts?) — run a function in a worker thread, returns { result: Promise<T>, cancel() }. Accepts { ctx } for auto-cancellation via context.
-- chan(capacity?) — Go-style channels with len/cap inspection and directional views (sendOnly/recvOnly)
-- WaitGroup(ctx?) — spawn multiple tasks, wait for all. Optional context for auto-cancellation.
-- ErrGroup(ctx?) — like WaitGroup but cancels all on first error. Supports setLimit(n) for concurrency throttling.
-- select(cases, opts?) — wait for first of multiple promises (like Go's select). Supports send and recv cases.
-- context — background(), withCancel(), withTimeout(), withDeadline(), withValue(). Integrates with spawn/WaitGroup/ErrGroup.
-- Mutex — async mutual exclusion
-- RWMutex — read-write mutex (concurrent readers, exclusive writers)
-- Once<T> — run a function exactly once, all callers get same result
-- Cond — condition variable with wait/signal/broadcast
-- after(ms) / ticker(ms) — timers for use with select and async iteration
-- Timer(ms) — resettable one-shot timer with stop/reset (unlike fire-and-forget after())
-- register(name, fn) / run(name, ...args) — named task registry
-- configure(opts?) — global config (maxThreads, concurrency, idleTimeout, adapter)
-- stats() / resize(n) — pool introspection and runtime scaling
+- `spawn(fn, opts?)` — run one self-contained function in a worker thread; returns `{ result, cancel }`
+- `task(fn)` — reusable worker-thread function with explicit JSON-serializable arguments
+- `chan(capacity?)` — Go-style channels with `send`, `recv`, `close`, async iteration, `len`, `cap`, and directional views
+- `WaitGroup(ctx?)` — run many tasks and wait for all
+- `ErrGroup(ctx?)` — fail-fast group that cancels the rest on first error
+- `select(cases, opts?)` — wait for the first ready send, recv, or timer case
+- `background()`, `withCancel()`, `withTimeout()`, `withDeadline()`, `withValue()` — Go-style context helpers
+- `Mutex`, `RWMutex`, `Cond`, `Once`
+- `after()`, `ticker()`, `Timer`
+- `configure()`, `stats()`, `resize()`, `shutdown()`
 
-## Two Modes
+## Execution Modes
 
-- Exclusive (default): 1 task per thread, for CPU-bound work — spawn(() => heavyWork())
-- Concurrent: many tasks share a thread's event loop, for I/O-bound work — spawn(() => fetch(url), { concurrent: true })
+- Default exclusive mode: one task per worker, best for CPU-heavy work
+- `{ concurrent: true }`: many tasks share a worker event loop, best for async and I/O-heavy work
 
-## Key Constraints
+## Critical Rule
 
-- Functions passed to spawn() must be self-contained (no closure captures)
-- Channel values must be structured-cloneable (no functions, symbols, WeakRefs)
-- null cannot be sent through channels (it's the "closed" sentinel)
-- register()/run() args must be JSON-serializable
-- Spawn overhead is ~0.1-0.5ms, use for tasks > 5ms
+Functions passed to `spawn()` are serialized via `.toString()` and sent to a worker. They must be self-contained.
+
+Wrong:
+
+```ts
+const x = 42
+spawn(() => x + 1)
+```
+
+Right:
+
+```ts
+spawn(() => {
+  const x = 42
+  return x + 1
+})
+```
+
+## Constraints
+
+- `spawn()` functions cannot capture outer variables
+- `task()` arguments must be JSON-serializable
+- channel values must be structured-cloneable
+- `null` is reserved as the channel-closed sentinel
+- spawn overhead is roughly `0.1-0.5ms`; use it for tasks above roughly `5ms`
 
 ## Links
 
-- Docs: https://github.com/dmop/puru#readme
-- Full docs for LLMs: https://raw.githubusercontent.com/dmop/puru/main/llms-full.txt
-- AI assistant guide (AGENTS.md): https://raw.githubusercontent.com/dmop/puru/main/AGENTS.md
+- README: https://github.com/dmop/puru#readme
+- Full LLM docs: https://raw.githubusercontent.com/dmop/puru/main/llms-full.txt
+- AI assistant guide: https://raw.githubusercontent.com/dmop/puru/main/AGENTS.md

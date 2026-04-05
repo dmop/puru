@@ -1,10 +1,10 @@
 ## What
 
-<!-- Brief description of the change -->
+<!-- Brief summary of the change -->
 
 ## Why
 
-<!-- Motivation / issue link -->
+<!-- Motivation, context, or issue link -->
 
 ## Checklist
 

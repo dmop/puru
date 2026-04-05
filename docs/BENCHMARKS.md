@@ -1,6 +1,8 @@
 # Benchmarks
 
-Benchmarks were measured on an **Apple M1 Pro (8 cores), 16 GB RAM**.
+Benchmarks were measured on an **Apple M1 Pro (8 cores, 16 GB RAM)**.
+
+Treat these numbers as directional, not absolute. Real gains depend on task size, transfer cost, runtime, and how much of the workload is actually CPU-bound.
 
 Run them locally with:
 
@@ -67,3 +69,5 @@ npm run bench:bun
 - Use worker threads for work above roughly `5ms`
 - Use `concurrent: true` when tasks mostly `await`
 - Use default mode when the bottleneck is CPU
+
+See also [Choosing the Right Primitive](./CHOOSING-PRIMITIVES.md) and [Production Use Cases](./USE-CASES.md).

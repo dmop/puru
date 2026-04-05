@@ -1,6 +1,8 @@
 # Contributing to puru
 
-Thanks for your interest in contributing!
+Thanks for helping improve `puru`.
+
+This guide covers the local workflow, quality checks, and release notes we expect for user-facing changes.
 
 ## Development Setup
 
@@ -26,14 +28,14 @@ npm test
 ## Pull Requests
 
 1. Fork the repo and create a branch from `main`
-2. If you added functionality, add tests
+2. Add or update tests for behavior changes
 3. Ensure `npm run lint`, `npm run typecheck`, and `npm test` all pass
-4. Add a changeset: `npx changeset` — describe what changed and pick the semver bump
+4. Add a changeset with `npx changeset` for user-facing changes
 5. Open a PR against `main`
 
 ## Changesets
 
-We use [changesets](https://github.com/changesets/changesets) for versioning. Every user-facing change needs a changeset. Run `npx changeset`, select the package, choose the bump type, and write a short summary.
+We use [changesets](https://github.com/changesets/changesets) for versioning. Every user-facing change should include a changeset with a short, release-note-ready summary.
 
 ## Reporting Bugs
 

@@ -14,7 +14,8 @@ let taskCounter = 0;
  * different arguments. For one-off work, use spawn() instead.
  *
  * Arguments must be JSON-serializable (no functions, symbols, undefined, or BigInt).
- * The function itself must be self-contained — it cannot capture enclosing scope variables.
+ * The function itself must also be self-contained — it is serialized and sent to a
+ * worker thread, so it cannot capture enclosing scope variables.
  *
  * @example
  * const resizeImage = task((src: string, width: number, height: number) => {

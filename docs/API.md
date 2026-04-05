@@ -1,5 +1,7 @@
 # API Reference
 
+This page is the exact API surface. If you want help deciding which primitive to use first, start with [Choosing the Right Primitive](./CHOOSING-PRIMITIVES.md). For implementation details, see [How puru Works](./HOW-IT-WORKS.md).
+
 ## `spawn(fn, opts?)`
 
 Run a function in a worker thread. Returns:
@@ -37,7 +39,11 @@ console.log(await result)
 import { spawn, background, withTimeout } from '@dmop/puru'
 
 const [ctx, cancel] = withTimeout(background(), 5000)
-const { result } = spawn(() => heavyWork(), { ctx })
+const { result } = spawn(() => {
+  let total = 0
+  for (let i = 0; i < 1_000_000; i++) total += i
+  return total
+}, { ctx })
 // task auto-cancels if context expires
 ```
 
@@ -181,13 +187,14 @@ Limit the maximum number of tasks running concurrently. Like Go's `errgroup.SetL
 
 ```ts
 const eg = new ErrGroup()
-eg.setLimit(4) // max 4 tasks in flight at once
+eg.setLimit(2) // max 2 tasks in flight at once
 
-for (const url of urls) {
-  eg.spawn(() => fetch(url).then(r => r.json()), { concurrent: true })
-}
+eg.spawn(() => fetch('https://api.example.com/a').then((r) => r.json()), { concurrent: true })
+eg.spawn(() => fetch('https://api.example.com/b').then((r) => r.json()), { concurrent: true })
+eg.spawn(() => fetch('https://api.example.com/c').then((r) => r.json()), { concurrent: true })
+eg.spawn(() => fetch('https://api.example.com/d').then((r) => r.json()), { concurrent: true })
 
-const results = await eg.wait() // runs at most 4 at a time
+const results = await eg.wait() // runs at most 2 at a time
 ```
 
 ## `Mutex`
@@ -438,6 +445,8 @@ configure({
 ```
 
 ## `stats()` / `resize(n)`
+
+These are advanced operational APIs. Most applications can configure the pool once at startup and never call them again.
 
 Inspect and resize the pool.
 

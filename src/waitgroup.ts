@@ -62,6 +62,9 @@ export class WaitGroup<T extends StructuredCloneValue = StructuredCloneValue> {
   /**
    * Spawns a function on a worker thread and adds it to the group.
    *
+   * The function follows the same rule as `spawn()`: it must be self-contained
+   * and cannot capture variables from outer scope.
+   *
    * @throws If the group has already been cancelled.
    */
   spawn<TChannels extends SpawnChannels = Record<never, never>>(

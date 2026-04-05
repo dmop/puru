@@ -6,7 +6,7 @@
 [![zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](https://www.npmjs.com/package/@dmop/puru?activeTab=dependencies)
 [![license](https://img.shields.io/npm/l/@dmop/puru)](LICENSE)
 
-**Go-style concurrency for JavaScript.** Worker threads with channels, WaitGroup, select, and context — zero dependencies, no worker files, no boilerplate.
+**Go-style concurrency for JavaScript.** Run CPU-heavy or I/O-heavy work off the main thread with channels, `WaitGroup`, `ErrGroup`, `select`, and `context` — zero dependencies, no worker files, no boilerplate.
 
 ```ts
 import { spawn } from '@dmop/puru'
@@ -84,16 +84,33 @@ bun add @dmop/puru
 ## Quick Start
 
 ```ts
-import { spawn, WaitGroup, chan } from '@dmop/puru'
+import { spawn, WaitGroup, chan, task } from '@dmop/puru'
 
 // CPU work on a dedicated worker
-const { result } = spawn(() => fibonacci(40))
+const { result } = spawn(() => {
+  function fibonacci(n: number): number {
+    if (n <= 1) return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+  }
+  return fibonacci(40)
+})
+
+// Reusable worker logic with explicit arguments
+const crunch = task((n: number) => {
+  let sum = 0
+  for (let i = 0; i < n; i++) sum += i
+  return sum
+})
 
 // Parallel batch — wait for all
 const wg = new WaitGroup()
-wg.spawn(() => crunchData())
-wg.spawn(() => crunchMoreData())
+wg.spawn(() => 21 * 2)
+wg.spawn(() => 6 * 7)
 const [a, b] = await wg.wait()
+
+const bigNumber = await result
+const heavySum = await crunch(1_000_000)
+console.log({ a, b, bigNumber, heavySum })
 
 // Cross-thread channels
 const ch = chan<number>(10)
@@ -189,9 +206,11 @@ configure({ adapter: 'inline' }) // runs on main thread, no real workers
 
 ## Docs
 
+- [Choosing the right primitive](docs/CHOOSING-PRIMITIVES.md)
 - [API reference](docs/API.md)
+- [How it works](docs/HOW-IT-WORKS.md)
 - [Benchmarks](docs/BENCHMARKS.md)
-- [Production use cases](USE-CASES.md)
+- [Production use cases](docs/USE-CASES.md)
 - [Examples](examples)
 - [AI assistant guide](AGENTS.md)
 

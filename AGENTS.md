@@ -1,8 +1,8 @@
 # puru — Guide for AI Assistants
 
-puru is a zero-dependency thread pool library for JavaScript with Go-style concurrency primitives (channels, WaitGroup, ErrGroup, select, context, Mutex, RWMutex, Cond, Timer). It runs functions off the main thread with no worker files and no boilerplate.
+puru is a zero-dependency thread pool library for JavaScript with Go-style concurrency primitives such as channels, `WaitGroup`, `ErrGroup`, `select`, `context`, `Mutex`, `RWMutex`, `Cond`, and `Timer`. It runs functions off the main thread with no worker files and no boilerplate.
 
-Full API reference: https://raw.githubusercontent.com/dmop/puru/main/llms-full.txt
+Full AI-facing reference: https://raw.githubusercontent.com/dmop/puru/main/llms-full.txt
 
 ## Install
 
@@ -128,9 +128,10 @@ import { ErrGroup } from '@dmop/puru'
 const eg = new ErrGroup()
 eg.setLimit(4) // max 4 tasks in flight at once
 
-for (const url of urls) {
-  eg.spawn(() => fetch(url).then(r => r.json()), { concurrent: true })
-}
+eg.spawn(() => fetch('https://api.example.com/a').then(r => r.json()), { concurrent: true })
+eg.spawn(() => fetch('https://api.example.com/b').then(r => r.json()), { concurrent: true })
+eg.spawn(() => fetch('https://api.example.com/c').then(r => r.json()), { concurrent: true })
+eg.spawn(() => fetch('https://api.example.com/d').then(r => r.json()), { concurrent: true })
 
 const results = await eg.wait()
 ```
@@ -142,7 +143,11 @@ import { spawn, background, withTimeout } from '@dmop/puru'
 
 // Task auto-cancels when context expires — no manual wiring needed
 const [ctx, cancel] = withTimeout(background(), 5000)
-const { result } = spawn(() => heavyWork(), { ctx })
+const { result } = spawn(() => {
+  let total = 0
+  for (let i = 0; i < 1_000_000; i++) total += i
+  return total
+}, { ctx })
 
 try {
   console.log(await result)
@@ -317,3 +322,5 @@ configure({ adapter: 'inline' })
 - Bun: full support
 - Deno: planned
 - Cloudflare Workers / Vercel Edge: not supported (no thread API)
+
+See also: `README.md`, `docs/API.md`, and `docs/CHOOSING-PRIMITIVES.md`.

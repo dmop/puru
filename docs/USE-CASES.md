@@ -4,6 +4,8 @@ JavaScript runs on a single thread. When your server spends 200ms crunching data
 
 puru gives you a managed thread pool with Go-style concurrency primitives: inline functions, no worker files, channels, and structured concurrency. CPU-heavy work runs on dedicated worker threads, keeping the main event loop free. Below are the production scenarios where this matters.
 
+If you are new to the API, start with [Choosing the Right Primitive](./CHOOSING-PRIMITIVES.md) and use this page as a pattern catalog.
+
 ---
 
 ## CPU-Bound Work in Request Handlers
@@ -202,26 +204,26 @@ app.post('/login', async (req, res) => {
 
 ## Request-Level Timeouts with Context
 
-Go's `context` package is the standard way to propagate deadlines and cancellation. puru's context works the same: derive child contexts from a parent, and cancellation flows downward.
+Go's `context` package is the standard way to propagate deadlines and cancellation. puru's context works the same: derive child contexts from a parent, carry request metadata, and enforce a deadline consistently across the handler.
 
 ```ts
-import { background, withTimeout, withValue, WaitGroup } from '@dmop/puru'
+import { background, withTimeout, withValue, task } from '@dmop/puru'
 
 app.get('/dashboard/:tenantId', async (req, res) => {
   // 1. Create a context with a 2s SLA and request metadata
   const ctx = withValue(background(), 'tenantId', req.params.tenantId)
   const [reqCtx, cancel] = withTimeout(ctx, 2000)
 
-  const wg = new WaitGroup()
-  wg.spawn(() => aggregateSales(/* inline */), { concurrent: true })
-  wg.spawn(() => aggregateUsers(/* inline */), { concurrent: true })
-  wg.spawn(() => aggregateRevenue(/* inline */), { concurrent: true })
-
-  // Cancel all tasks if the deadline passes
-  reqCtx.done().then(() => wg.cancel())
+  const aggregateSales = task((tenantId: string) => ({ tenantId, kind: 'sales' as const }))
+  const aggregateUsers = task((tenantId: string) => ({ tenantId, kind: 'users' as const }))
+  const aggregateRevenue = task((tenantId: string) => ({ tenantId, kind: 'revenue' as const }))
 
   try {
-    const [sales, users, revenue] = await wg.wait()
+    const [sales, users, revenue] = await Promise.all([
+      aggregateSales(req.params.tenantId),
+      aggregateUsers(req.params.tenantId),
+      aggregateRevenue(req.params.tenantId),
+    ])
     res.json({ sales, users, revenue })
   } catch {
     if (reqCtx.err?.name === 'DeadlineExceededError') {
@@ -234,6 +236,8 @@ app.get('/dashboard/:tenantId', async (req, res) => {
   }
 })
 ```
+
+For true worker-level cancellation, pass `ctx` to `spawn()` directly or use a `WaitGroup` / `ErrGroup` constructed with that context when your worker functions can be self-contained.
 
 **Why context over raw `setTimeout`:**
 
@@ -616,6 +620,8 @@ npm run bench:once         # Once + Ticker
 ```
 
 ## Supported Runtimes
+
+For exact signatures, see [API.md](./API.md). For internals and scheduling behavior, see [HOW-IT-WORKS.md](./HOW-IT-WORKS.md).
 
 | Runtime | Status |
 | --- | --- |

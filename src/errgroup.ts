@@ -55,6 +55,7 @@ export class ErrGroup<T extends StructuredCloneValue = StructuredCloneValue> {
     }
   }
 
+  /** Shared abort signal for this group. Aborted on `cancel()` or first failure. */
   get signal(): AbortSignal {
     return this.controller.signal;
   }
@@ -78,6 +79,8 @@ export class ErrGroup<T extends StructuredCloneValue = StructuredCloneValue> {
     fn: (() => T | Promise<T>) | ((channels: TChannels) => T | Promise<T>),
     opts?: { concurrent?: boolean; channels?: TChannels },
   ): void {
+    // Same rule as spawn(): the worker function must be self-contained and
+    // cannot capture variables from outer scope.
     if (this.controller.signal.aborted) {
       throw new Error("ErrGroup has been cancelled");
     }
@@ -146,6 +149,7 @@ export class ErrGroup<T extends StructuredCloneValue = StructuredCloneValue> {
     });
   }
 
+  /** Cancel all active and queued tasks in the group. */
   cancel(): void {
     this.controller.abort();
     for (const task of this.tasks) {

@@ -1,6 +1,8 @@
 # How puru Works Under the Hood
 
-This document explains the internal architecture of puru with diagrams. If you just want to use the library, see the [API Reference](./API.md). If you want to understand _how_ it works, read on.
+This document explains the internal architecture of `puru` with diagrams. If you just want to use the library, see the [API Reference](./API.md). If you want help choosing the right abstraction, start with [Choosing the Right Primitive](./CHOOSING-PRIMITIVES.md).
+
+The diagrams here explain behavior and tradeoffs. They are not a promise that every internal detail is stable public API.
 
 ## Architecture Overview
 

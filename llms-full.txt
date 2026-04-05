@@ -1,453 +1,352 @@
-# puru (プール) — Full Documentation
+# puru (プール) — Full LLM Reference
 
-> A thread pool with Go-style concurrency primitives for JavaScript
+> Go-style concurrency primitives for JavaScript worker threads
 
-puru manages a pool of worker threads and provides a simple API to run functions off the main thread. Zero runtime dependencies. No separate worker files, no manual message passing.
+`puru` is a zero-dependency thread pool for JavaScript. It runs functions off the main thread with inline worker functions, no worker files, and no manual message plumbing.
 
-Works on Node.js and Bun. Deno support coming soon.
+Best fit:
+- CPU-bound work in Node.js or Bun
+- structured concurrency with `WaitGroup` or `ErrGroup`
+- producer/consumer pipelines with channels
+- cancellable work with Go-style `context`
 
-puru (プール) means "pool" in Japanese.
+Supported runtimes:
+- Node.js >= 20
+- Bun
+
+Not supported:
+- Cloudflare Workers
+- Vercel Edge
+
+`puru` means "pool" in Japanese.
 
 ## Install
 
+```bash
 npm install @dmop/puru
+# or
 bun add @dmop/puru
+```
+
+## Start Here
+
+Use:
+- `spawn()` for one self-contained worker task
+- `task()` for one worker function called many times with different arguments
+- `WaitGroup` to wait for all tasks
+- `ErrGroup` to cancel the rest on first error
+- `chan()` and `select()` for coordination and pipelines
+- `context` helpers for timeouts and cancellation
+
+## Critical Rule
+
+Functions passed to `spawn()` are serialized via `.toString()` and sent to a worker. They cannot capture variables from outer scope.
+
+Wrong:
+
+```ts
+const factor = 2
+spawn(() => 21 * factor)
+```
+
+Right:
+
+```ts
+spawn(() => {
+  const factor = 2
+  return 21 * factor
+})
+```
+
+The same rule applies to functions passed to `WaitGroup.spawn()` and `ErrGroup.spawn()`.
 
 ## Quick Start
 
-```typescript
-import { spawn, chan, WaitGroup, ErrGroup, select, after, Timer, Mutex, RWMutex, Cond, background, withTimeout } from '@dmop/puru'
+```ts
+import { spawn, task, WaitGroup, chan } from '@dmop/puru'
 
-// CPU work — runs in a dedicated worker thread
-const { result } = spawn(() => fibonacci(40))
-console.log(await result)
+const { result } = spawn(() => {
+  function fibonacci(n: number): number {
+    if (n <= 1) return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+  }
+  return fibonacci(40)
+})
 
-// I/O work — many tasks share worker threads
+const measure = task((text: string) => text.length)
+
 const wg = new WaitGroup()
-for (const url of urls) {
-  wg.spawn(() => fetch(url).then(r => r.json()), { concurrent: true })
-}
-const results = await wg.wait()
+wg.spawn(() => 40 + 2)
+wg.spawn(() => 6 * 7)
+
+const jobs = chan<number>(10)
+spawn(async ({ jobs }) => {
+  for (let i = 0; i < 5; i++) await jobs.send(i)
+  jobs.close()
+}, { channels: { jobs } })
 ```
 
 ## How It Works
 
-puru manages a thread pool — tasks are dispatched onto a fixed set of worker threads.
+`puru` manages a thread pool. Tasks are dispatched onto a bounded set of worker threads.
 
 Two modes:
+- Exclusive (default): one task per thread. Best for CPU-bound work.
+- Concurrent (`{ concurrent: true }`): many tasks share a worker event loop. Best for async and I/O-heavy work.
 
-- Exclusive (default): 1 task per thread, full core usage. Best for CPU-bound work.
-- Concurrent ({ concurrent: true }): many tasks share a thread's event loop. Best for I/O-bound / async work.
-
-CPU-bound work gets a dedicated thread. I/O-bound work shares threads efficiently. The API is inspired by Go's concurrency primitives (channels, WaitGroup, select), but the underlying mechanism is a thread pool — not a green thread scheduler.
+The API is inspired by Go's concurrency primitives, but the underlying mechanism is a real worker-thread pool, not green threads.
 
 ## API Reference
 
-### spawn(fn, opts?)
+### `spawn(fn, opts?)`
 
-Run a function in a worker thread. Returns { result: Promise<T>, cancel: () => void }.
+Run one self-contained function in a worker thread. Returns `{ result: Promise<T>, cancel: () => void }`.
 
-```typescript
-// CPU-bound — exclusive mode (default)
-const { result } = spawn(() => fibonacci(40))
+```ts
+const { result } = spawn(() => {
+  let sum = 0
+  for (let i = 0; i < 1_000_000; i++) sum += i
+  return sum
+})
 
-// I/O-bound — concurrent mode (many tasks per thread)
-const { result } = spawn(() => fetch(url), { concurrent: true })
-
-// With priority
-const { result } = spawn(() => criticalWork(), { priority: 'high' })
-
-// Cancel
-const { result, cancel } = spawn(() => longTask())
-setTimeout(cancel, 5000)
+const request = spawn(
+  () => fetch('https://api.example.com/users/1').then((r) => r.json()),
+  { concurrent: true },
+)
 ```
 
 Options:
-- priority: 'low' | 'normal' | 'high' (default: 'normal')
-- concurrent: boolean (default: false)
-- channels: Record<string, Channel<unknown>> — pass channels to the worker
-- ctx: Context — auto-cancel the task when the context is cancelled
+- `priority`: `'low' | 'normal' | 'high'` (default: `'normal'`)
+- `concurrent`: boolean (default: `false`)
+- `channels`: pass channels into the worker function
+- `ctx`: auto-cancel the task when the context is cancelled
 
-Exclusive mode (default): the function gets a dedicated thread. Use for CPU-heavy work.
-Concurrent mode ({ concurrent: true }): multiple tasks share a thread's event loop. Use for async/I/O work.
+Context integration:
 
-Context integration — tasks auto-cancel when the context expires:
-
-```typescript
+```ts
 const [ctx, cancel] = withTimeout(background(), 5000)
-const { result } = spawn(() => heavyWork(), { ctx })
-// task auto-cancels after 5s
+const { result } = spawn(() => {
+  let total = 0
+  for (let i = 0; i < 1_000_000; i++) total += i
+  return total
+}, { ctx })
 ```
 
-Functions must be self-contained — they cannot capture variables from the enclosing scope:
+### `task(fn)`
 
-```typescript
-const x = 42
-spawn(() => x + 1)   // ReferenceError: x is not defined
-spawn(() => 42 + 1)  // works
+Reusable worker-thread function with explicit arguments.
+
+Use `task()` when the worker logic stays the same but the inputs change.
+
+```ts
+const resize = task((width: number, height: number) => ({ width, height }))
+const a = await resize(800, 600)
+const b = await resize(400, 300)
 ```
 
-### chan(capacity?)
+Arguments must be JSON-serializable. The task function itself must still be self-contained.
 
-Create a channel for communicating between async tasks — including across worker threads.
+### `chan(capacity?)`
 
-```typescript
-const ch = chan<number>(10) // buffered, capacity 10
-const ch = chan<string>()   // unbuffered, capacity 0
+Create a Go-style channel for communication between async tasks and across worker threads.
 
-await ch.send(42)
-const value = await ch.recv() // 42
-
-// Inspect buffer state (like Go's len(ch) and cap(ch))
-ch.len // number of buffered values
-ch.cap // buffer capacity
-
-ch.close()
-await ch.recv() // null (closed)
-
-// Async iteration
-for await (const value of ch) {
-  process(value)
-}
-
-// Directional views (like Go's chan<- T and <-chan T)
-const sender = ch.sendOnly()   // only send() and close()
-const receiver = ch.recvOnly() // only recv() and async iteration
-```
-
-Channels in workers — pass channels to spawn() and use them across worker threads:
-
-```typescript
+```ts
 const ch = chan<number>(10)
 
-// Producer worker
-spawn(async ({ ch }) => {
-  for (let i = 0; i < 100; i++) await ch.send(i)
-  ch.close()
-}, { channels: { ch } })
+await ch.send(42)
+await ch.recv() // 42
+ch.len          // buffered values
+ch.cap          // capacity
 
-// Consumer worker
-spawn(async ({ ch }) => {
-  for await (const item of ch) process(item)
-}, { channels: { ch } })
-
-// Fan-out: multiple workers pulling from the same channel
-const input = chan<Job>(50)
-const output = chan<Result>(50)
-
-for (let i = 0; i < 4; i++) {
-  spawn(async ({ input, output }) => {
-    for await (const job of input) {
-      await output.send(processJob(job))
-    }
-  }, { channels: { input, output } })
-}
+ch.close()
+await ch.recv() // null
 ```
 
-### WaitGroup
+Directional views:
+- `sendOnly()`
+- `recvOnly()`
 
-Structured concurrency. Spawn multiple tasks, wait for all. Accepts optional Context.
+### `WaitGroup`
 
-```typescript
-// Without context
+Use `WaitGroup` when you want to run many tasks and wait for all of them.
+
+```ts
 const wg = new WaitGroup()
-wg.spawn(() => cpuWork())                          // exclusive
-wg.spawn(() => fetchData(), { concurrent: true })  // concurrent
+wg.spawn(() => {
+  let sum = 0
+  for (let i = 0; i < 1_000_000; i++) sum += i
+  return sum
+})
+wg.spawn(() => fetch('https://api.example.com/data').then((r) => r.json()), {
+  concurrent: true,
+})
 
-const results = await wg.wait()       // like Promise.all
-const settled = await wg.waitSettled() // like Promise.allSettled
-
-wg.cancel() // cancel all tasks
-
-// With context — all tasks auto-cancel when context expires
-const [ctx, cancel] = withTimeout(background(), 5000)
-const wg2 = new WaitGroup(ctx)
-wg2.spawn(() => cpuWork())
-const results2 = await wg2.wait()
-cancel()
-```
-
-### ErrGroup
-
-Like WaitGroup, but cancels all remaining tasks on first error — in-flight workers are terminated and queued tasks are discarded (modeled after Go's golang.org/x/sync/errgroup). Accepts optional Context. Supports setLimit() for concurrency throttling.
-
-```typescript
-const eg = new ErrGroup()
-eg.spawn(() => fetchUser(id))
-eg.spawn(() => fetchOrders(id))
-eg.spawn(() => fetchAnalytics(id))
-
-try {
-  const [user, orders, analytics] = await eg.wait()
-} catch (err) {
-  // First error — all other tasks were cancelled
-  console.error('Failed:', err)
-}
-```
-
-setLimit(n) — limit max concurrent tasks (like Go's errgroup.SetLimit). Must be called before any spawn().
-
-```typescript
-const eg = new ErrGroup()
-eg.setLimit(4) // max 4 tasks in flight
-
-for (const url of urls) {
-  eg.spawn(() => fetch(url).then(r => r.json()), { concurrent: true })
-}
-const results = await eg.wait() // runs 4 at a time
+const results = await wg.wait()
+const settled = await wg.waitSettled()
 ```
 
 With context:
 
-```typescript
+```ts
 const [ctx, cancel] = withTimeout(background(), 5000)
-const eg = new ErrGroup(ctx) // auto-cancel all tasks on timeout
-eg.setLimit(2)
-// ...
+const wg = new WaitGroup(ctx)
+wg.spawn(() => 42)
+const results = await wg.wait()
 cancel()
 ```
 
-### Mutex
+### `ErrGroup`
 
-Async mutual exclusion. Serialize access to shared resources under concurrency.
+Use `ErrGroup` when one failure should cancel the whole operation.
 
-```typescript
+```ts
+const eg = new ErrGroup()
+eg.spawn(() => fetch('https://api.example.com/user').then((r) => r.json()), { concurrent: true })
+eg.spawn(() => fetch('https://api.example.com/orders').then((r) => r.json()), { concurrent: true })
+eg.spawn(() => fetch('https://api.example.com/analytics').then((r) => r.json()), { concurrent: true })
+
+const [user, orders, analytics] = await eg.wait()
+```
+
+Concurrency limit:
+
+```ts
+const eg = new ErrGroup()
+eg.setLimit(2)
+eg.spawn(() => fetch('https://api.example.com/a').then((r) => r.json()), { concurrent: true })
+eg.spawn(() => fetch('https://api.example.com/b').then((r) => r.json()), { concurrent: true })
+eg.spawn(() => fetch('https://api.example.com/c').then((r) => r.json()), { concurrent: true })
+const results = await eg.wait()
+```
+
+### `Mutex`
+
+Async mutual exclusion for shared resources.
+
+```ts
 const mu = new Mutex()
-
-// withLock — recommended (auto-unlocks on error)
-const result = await mu.withLock(async () => {
-  return await db.query('UPDATE ...')
-})
-
-// Manual lock/unlock
-await mu.lock()
-try { /* critical section */ }
-finally { mu.unlock() }
+await mu.withLock(async () => db.query('UPDATE ...'))
 ```
 
-### RWMutex
+### `RWMutex`
 
-Read-write mutex. Multiple concurrent readers, exclusive writers. Like Go's sync.RWMutex.
+Read-write mutex. Multiple readers can proceed concurrently; writers get exclusive access.
 
-Use instead of Mutex when reads vastly outnumber writes.
-
-```typescript
+```ts
 const rw = new RWMutex()
-
-// Many readers can run concurrently
-const data = await rw.withRLock(() => cache.get('config'))
-
-// Writers get exclusive access
-await rw.withLock(() => cache.set('config', newValue))
-
-// Manual API
-await rw.rLock()
-try { /* read */ }
-finally { rw.rUnlock() }
-
-await rw.lock()
-try { /* write */ }
-finally { rw.unlock() }
+const config = await rw.withRLock(() => cache.get('config'))
+await rw.withLock(() => cache.set('config', nextValue))
 ```
 
-### Once<T>
+### `Once<T>`
 
-Run a function exactly once, even if called concurrently. All callers get the same result.
+Run a function exactly once.
 
-```typescript
-const once = new Once<DBConnection>()
-const conn = await once.do(() => createExpensiveConnection())
-// Subsequent calls return the cached result
+```ts
+const once = new Once<number>()
+const value = await once.do(() => 42)
 ```
 
-### Cond
+### `Cond`
 
-Condition variable with Wait/Signal/Broadcast. Like Go's sync.Cond.
+Condition variable for wait/signal/broadcast coordination.
 
-```typescript
+```ts
 const mu = new Mutex()
 const cond = new Cond(mu)
 let ready = false
 
-// Waiter
 await mu.lock()
-while (!ready) await cond.wait() // releases lock, waits, re-acquires
-mu.unlock()
-
-// Signaler
-await mu.lock()
-ready = true
-cond.signal()     // wake one waiter
-// cond.broadcast() // wake all waiters
+while (!ready) await cond.wait()
 mu.unlock()
 ```
 
-### select(cases, opts?)
+### `select(cases, opts?)`
 
-Wait for the first of multiple promises to resolve, like Go's select. Supports both recv and send cases.
+Wait for the first ready send, recv, or timer case.
 
-```typescript
-// Recv case — handler receives the value
+```ts
 await select([
-  [ch.recv(), (value) => console.log('received', value)],
+  [ch.recv(), (value) => console.log(value)],
   [after(5000), () => console.log('timeout')],
 ])
-
-// Send case — handler runs when send completes
-await select([
-  [ch.send(42), () => console.log('sent!')],
-  [after(1000), () => console.log('send timed out')],
-])
-
-// Non-blocking — returns immediately if nothing is ready (Go's select with default)
-await select(
-  [[ch.recv(), (value) => process(value)]],
-  { default: () => console.log('channel not ready') },
-)
 ```
 
-### after(ms) / ticker(ms) / Timer(ms)
+### `after(ms)` / `ticker(ms)` / `Timer`
 
-Timers for use with select and async iteration.
+Timer helpers:
+- `after(ms)` — one-shot promise
+- `ticker(ms)` — repeating async iterator
+- `Timer` — resettable one-shot timer with `stop()` and `reset()`
 
-```typescript
-await after(1000) // one-shot: resolves after 1 second (fire-and-forget)
+### `Context`
 
-// Repeating: tick every 500ms
-const t = ticker(500)
-for await (const _ of t) {
-  console.log('tick')
-  if (shouldStop) t.stop()
-}
-```
+Go-style cancellation, deadlines, and request-scoped values.
 
-Timer — resettable one-shot timer. Unlike after(), can be stopped and reset.
-
-```typescript
-const t = new Timer(5000)
-
-// Use with select for cancellable timeouts
-await select([
-  [ch.recv(), (v) => { t.stop(); handle(v) }],
-  [t.channel, () => console.log('timed out')],
-])
-
-// Reset for debounce
-t.reset(300) // reschedule, creates new channel promise
-await t.channel
-
-// Properties
-t.stopped  // true after firing or stop()
-t.stop()   // returns true if was pending
-t.channel  // promise that resolves when timer fires
-```
-
-### Context
-
-Hierarchical cancellation, deadlines, and request-scoped values — modeled after Go's context package. Integrates with spawn(), WaitGroup, and ErrGroup.
-
-```typescript
-import { background, withCancel, withTimeout, withDeadline, withValue } from '@dmop/puru'
-
-// Root context — never cancelled
+```ts
 const root = background()
-
-// Manual cancellation
-const [ctx, cancel] = withCancel(root)
-cancel() // or cancel('reason')
-ctx.err  // CancelledError
-
-// Timeout
-const [ctx2, cancel2] = withTimeout(root, 5000)
-ctx2.deadline // Date ~5s from now
-ctx2.done()   // promise that resolves when cancelled/expired
-cancel2()     // cancel early, clears timer
-
-// Absolute deadline
-const [ctx3, cancel3] = withDeadline(root, new Date('2025-12-31'))
-
-// Request-scoped values
-const ctx4 = withValue(root, 'requestId', 'abc-123')
-ctx4.value('requestId') // 'abc-123'
-
-// Composition — child inherits parent's deadline and cancellation
-const [parent] = withTimeout(root, 10000)
-const child = withValue(parent, 'userId', '42')
-// child cancels when parent does (10s timeout)
+const [ctx, cancel] = withTimeout(root, 5000)
+const child = withValue(ctx, 'requestId', 'abc-123')
+await child.done()
+cancel()
 ```
 
-Context interface:
+Key helpers:
+- `background()`
+- `withCancel(parent)`
+- `withTimeout(parent, ms)`
+- `withDeadline(parent, deadline)`
+- `withValue(parent, key, value)`
 
-```typescript
-interface Context {
-  readonly signal: AbortSignal
-  readonly deadline: Date | null
-  readonly err: CancelledError | DeadlineExceededError | null
-  value<T>(key: symbol | string): T | undefined
-  done(): Promise<void>
-}
-```
+### `configure(opts?)`
 
-### register(name, fn) / run(name, ...args)
+Optional global configuration. Must be called before the first `spawn()`.
 
-Named task registry. Register functions by name, call them by name.
-
-```typescript
-register('resize', (buffer, w, h) => sharp(buffer).resize(w, h).toBuffer())
-const resized = await run('resize', imageBuffer, 800, 600)
-```
-
-### configure(opts?)
-
-Optional global configuration. Must be called before the first spawn().
-
-```typescript
+```ts
 configure({
-  maxThreads: 4,        // default: os.availableParallelism()
-  concurrency: 64,      // max concurrent tasks per shared worker (default: 64)
-  idleTimeout: 30_000,  // kill idle workers after 30s (default)
-  adapter: 'auto',      // 'auto' | 'node' | 'bun' | 'inline'
+  maxThreads: 4,
+  concurrency: 64,
+  idleTimeout: 30_000,
+  adapter: 'auto',
 })
 ```
 
-### stats() / resize(n)
+### `stats()` / `resize(n)` / `shutdown()`
 
-```typescript
-const s = stats()  // { totalWorkers, idleWorkers, busyWorkers, queuedTasks, ... }
-resize(8)          // scale pool up/down at runtime
-```
+Advanced operational APIs:
+- `stats()` — inspect pool utilization
+- `resize(n)` — change max exclusive worker count at runtime
+- `shutdown()` — drain and tear down the pool
 
-### detectRuntime() / detectCapability()
+### `detectRuntime()` / `detectCapability()`
 
-```typescript
+Diagnostics:
+
+```ts
 detectRuntime()     // 'node' | 'bun' | 'deno' | 'browser'
 detectCapability()  // 'full-threads' | 'single-thread'
 ```
 
-## Runtimes
-
-- Node.js >= 20: Full support via worker_threads
-- Bun: Full support via Web Workers (file-based)
-- Deno: Planned
-- Cloudflare Workers: Not supported (no thread support)
-- Vercel Edge: Not supported (no thread support)
-
 ## Testing
 
-```typescript
-import { configure } from '@dmop/puru'
-configure({ adapter: 'inline' }) // runs tasks in main thread, no real workers
+Use the inline adapter so tests run on the main thread with no real workers:
+
+```ts
+configure({ adapter: 'inline' })
 ```
 
-## Limitations
+## Constraints
 
-- Functions passed to spawn() cannot capture variables from the enclosing scope
-- Channel values must be structured-cloneable (no functions, symbols, or WeakRefs)
-- null cannot be sent through a channel (it's the "closed" sentinel)
-- register()/run() args must be JSON-serializable
-- Channel operations from workers have ~0.1-0.5ms RPC overhead per send/recv (fine for coarse-grained coordination, not for per-item micro-operations)
-- Spawn overhead is ~0.1-0.5ms — use spawn for tasks > 5ms; for trivial operations, call directly
+- functions passed to `spawn()` cannot capture outer variables
+- functions passed to `WaitGroup.spawn()` and `ErrGroup.spawn()` follow the same rule
+- `task()` arguments must be JSON-serializable
+- channel values must be structured-cloneable
+- `null` is the channel-closed sentinel
+- channel operations from workers have RPC overhead, so use channels for coordination rather than ultra-fine-grained per-item work
+- spawn overhead is roughly `0.1-0.5ms`; use it for tasks above roughly `5ms`
 
-## License
+## Links
 
-MIT
+- README: https://github.com/dmop/puru#readme
+- API docs: https://github.com/dmop/puru/blob/main/docs/API.md
+- AI assistant guide: https://raw.githubusercontent.com/dmop/puru/main/AGENTS.md

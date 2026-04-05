@@ -1,5 +1,7 @@
 # Changelog
 
+All notable user-facing changes to `puru` are documented here.
+
 ## Unreleased
 
 ### Fixed

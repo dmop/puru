@@ -850,28 +850,41 @@ export class WorkerPool {
   }
 }
 
+/** Snapshot of the current worker-pool state. Useful for debugging and metrics. */
 export interface PoolStats {
+  /** Number of exclusive workers currently alive. */
   totalWorkers: number;
+  /** Exclusive workers currently idle and ready to accept work. */
   idleWorkers: number;
+  /** Exclusive workers currently executing a task. */
   busyWorkers: number;
+  /** Shared workers used for `{ concurrent: true }` tasks. */
   sharedWorkers: number;
+  /** Number of tasks currently running in shared workers. */
   concurrentTasks: number;
+  /** Exclusive workers that are starting up but not ready yet. */
   pendingWorkers: number;
+  /** Queued exclusive tasks by priority. */
   queuedTasks: {
     high: number;
     normal: number;
     low: number;
     total: number;
   };
+  /** Queued concurrent-mode tasks by priority. */
   queuedConcurrentTasks: {
     high: number;
     normal: number;
     low: number;
     total: number;
   };
+  /** Total successfully completed tasks since pool start. */
   totalCompleted: number;
+  /** Total failed or cancelled tasks since pool start. */
   totalFailed: number;
+  /** Configured maximum number of exclusive worker threads. */
   maxThreads: number;
+  /** Configured maximum concurrent tasks per shared worker. */
   concurrency: number;
 }
 
@@ -904,10 +917,17 @@ export function getPool(): WorkerPool {
   return poolInstance;
 }
 
+/** Return a snapshot of current pool utilization and queue depth. */
 export function stats(): PoolStats {
   return getPool().stats();
 }
 
+/**
+ * Resize the maximum number of exclusive worker threads.
+ *
+ * This is an advanced operational API. Most applications should configure
+ * `maxThreads` once at startup with `configure()` and leave it there.
+ */
 export function resize(maxThreads: number): void {
   getPool().resize(maxThreads);
 }
