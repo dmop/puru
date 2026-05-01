@@ -6,7 +6,7 @@
 [![zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](https://www.npmjs.com/package/@dmop/puru?activeTab=dependencies)
 [![license](https://img.shields.io/npm/l/@dmop/puru)](LICENSE)
 
-**Go-style concurrency for JavaScript.** Run CPU-heavy or I/O-heavy work off the main thread with channels, `WaitGroup`, `ErrGroup`, `select`, and `context` — zero dependencies, no worker files, no boilerplate.
+**Go-style concurrency and parallelism for JavaScript.** Worker threads deliver true CPU **parallelism** across cores. Go-style `chan`, `WaitGroup`, `ErrGroup`, `select`, and `context` manage **concurrency** — zero dependencies, no worker files, no boilerplate.
 
 ```ts
 import { spawn } from '@dmop/puru'
@@ -137,10 +137,10 @@ Spawn overhead: ~0.1-0.5ms. Use for tasks above ~5ms.
 
 ## Two Modes
 
-| Mode | Use it for | What happens |
-| --- | --- | --- |
-| `spawn(fn)` | CPU-bound work | Dedicated worker thread |
-| `spawn(fn, { concurrent: true })` | Async / I/O work | Shares a worker's event loop |
+| Mode | Kind | Use it for | What happens |
+| --- | --- | --- | --- |
+| `spawn(fn)` | **Parallelism** | CPU-bound work | Dedicated worker thread — runs on a separate CPU core |
+| `spawn(fn, { concurrent: true })` | **Concurrency** | Async / I/O work | Shares a worker's event loop (M:N scheduling) |
 
 ## When To Use What
 

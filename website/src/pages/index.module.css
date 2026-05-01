@@ -1,0 +1,131 @@
+.hero {
+  padding: 5rem 0 4rem;
+  text-align: center;
+  background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%);
+}
+
+[data-theme='dark'] .hero {
+  background: linear-gradient(135deg, #0f172a 0%, #0c1a2e 100%);
+}
+
+.heroTitle {
+  font-size: 3.5rem;
+  font-weight: 800;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
+}
+
+.heroSubtitle {
+  font-size: 1.3rem;
+  color: var(--ifm-color-secondary-darkest);
+  max-width: 600px;
+  margin: 0 auto 2rem;
+  line-height: 1.6;
+}
+
+[data-theme='dark'] .heroSubtitle {
+  color: var(--ifm-color-secondary-light);
+}
+
+.heroButtons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 2.5rem;
+}
+
+.installBlock {
+  display: inline-block;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 1rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  border: 1px solid #334155;
+}
+
+[data-theme='dark'] .installBlock {
+  background: #0f172a;
+  border-color: #1e293b;
+}
+
+.installBlock span {
+  color: #94a3b8;
+  margin-right: 0.5rem;
+  user-select: none;
+}
+
+.features {
+  padding: 4rem 0;
+}
+
+.featuresGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.featureCard {
+  padding: 1.75rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 12px;
+  background: var(--ifm-card-background-color);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.featureCard:hover {
+  border-color: var(--ifm-color-primary);
+  box-shadow: 0 4px 20px rgba(37, 99, 235, 0.1);
+}
+
+.featureIcon {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.featureTitle {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.featureDesc {
+  font-size: 0.95rem;
+  color: var(--ifm-color-secondary-darkest);
+  line-height: 1.6;
+  margin: 0;
+}
+
+[data-theme='dark'] .featureDesc {
+  color: var(--ifm-color-secondary-light);
+}
+
+.perf {
+  padding: 3rem 0 4rem;
+  background: var(--ifm-color-emphasis-100);
+}
+
+.perfTable {
+  overflow-x: auto;
+  margin-top: 1.5rem;
+}
+
+.sectionTitle {
+  font-size: 2rem;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.sectionSubtitle {
+  text-align: center;
+  color: var(--ifm-color-secondary-darkest);
+  margin-bottom: 0;
+}
+
+[data-theme='dark'] .sectionSubtitle {
+  color: var(--ifm-color-secondary-light);
+}

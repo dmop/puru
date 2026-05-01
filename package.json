@@ -1,7 +1,7 @@
 {
   "name": "@dmop/puru",
   "version": "0.1.15",
-  "description": "puru (プール) — A thread pool with Go-style concurrency primitives for JavaScript",
+  "description": "puru (プール) — Go-style concurrency and parallelism for JavaScript",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -51,6 +51,8 @@
     "bench:once": "npx tsx benchmarks/11-once-ticker.ts",
     "size": "npm run build && size-limit",
     "docs": "typedoc",
+    "docs:dev": "cd website && npm run start",
+    "docs:build": "cd website && npm run build",
     "prepublishOnly": "npm run build",
     "prepare": "husky"
   },
